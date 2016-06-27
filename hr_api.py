@@ -49,7 +49,7 @@ def mint_record():
         f.write(r.toJSON())
     return identifier
 
-@app.route('/getRecord/<string:identifier>')
+@app.route('/getRecord/<string:identifier>', methods=['GET'])
 def get_record(identifier):
     r = retrieve_record(identifier)
     return r.toJSON()
