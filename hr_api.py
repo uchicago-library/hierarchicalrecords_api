@@ -1,4 +1,6 @@
 from flask import Flask
+from flask import request
+from flask import jsonify
 from uuid import uuid1
 from os.path import join
 
@@ -21,11 +23,28 @@ def retrieve_conf(conf_str):
 def build_validator(conf):
     return RecordValidator(conf)
 
-@app.route('/')
+@app.route('/', methods=['GET','POST'])
 def hello_world():
-    return 'Hello, World!'
+    if request.method == 'POST':
+        j = request.get_json()
+        return jsonify(j)
+    if request.method == 'GET':
+        docs = """
+        This is the root of the HierarchicalRecords API Application.
+        It has the following endpoints:
 
-@app.route('/newRecord')
+        GET
+            - /getRecord
+
+        POST
+            - /newRecord
+            - /setValue
+            - /delValue
+            - /validate
+        """
+        return docs
+
+@app.route('/newRecord', methods=['POST'])
 def mint_record():
     identifier = uuid1().hex
     r = HierarchicalRecord()
@@ -38,16 +57,26 @@ def get_record(identifier):
     r = retrieve_record(identifier)
     return r.toJSON()
 
-@app.route('/setValue/<string:identifier>/<string:key>/<string:value>')
-@app.route('/setValue/<string:identifier>/<string:key>/<string:value>/<string:conf>')
-def set_value(identifier, key, value, conf=None):
+@app.route('/setValue', methods=['POST'])
+def set_value():
+    j = request.get_json()
+    identifier = j['identifier']
+    key = j['key']
+    value = j['value']
+    try:
+        conf = j['conf']
+    except KeyError:
+        conf = None
+
     if value == "True":
         value = True
     if value == "False":
         value = False
     if value == "{}":
         value = {}
+
     r = retrieve_record(identifier)
+
     if conf is not None:
         v = build_validator(retrieve_conf(conf))
         r[key] = value
@@ -55,16 +84,29 @@ def set_value(identifier, key, value, conf=None):
             pass
         else:
             return "BAD NO"
+
     else:
         r[key] = value
+
     with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
         f.write(r.toJSON())
+
     return r.toJSON()
 
-@app.route('/delValue/<string:identifier>/<string:key>')
-@app.route('/delValue/<string:identifier>/<string:key>/<string:conf>')
-def remove_value(identifier, key, conf=None):
+@app.route('/delValue')
+def remove_value():
+    j = request.get_json()
+
+    identifier = j['identifier']
+    key = j['key']
+    value = j['value']
+    try:
+        conf = j['conf']
+    except KeyError:
+        conf = None
+
     r = retrieve_record(identifier)
+
     if conf is not None:
         v = build_validator(retrieve_conf(conf))
         del r[key]
@@ -72,14 +114,20 @@ def remove_value(identifier, key, conf=None):
             pass
         else:
             return "BAD NO"
+
     else:
         del r[key]
+
     with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
         f.write(r.toJSON())
     return r.toJSON()
 
-@app.route('/validate/<string:identifier>/<string:conf>')
+@app.route('/validate')
 def validate(identifier, conf):
+    j = request.get_json()
+
+    identifier = j['identifier']
+    conf = j['conf']
+
     v = build_validator(retrieve_conf(conf))
     return str(v.validate(retrieve_record(identifier)))
-    pass
