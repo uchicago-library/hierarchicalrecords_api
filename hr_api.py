@@ -23,11 +23,8 @@ def retrieve_conf(conf_str):
 def build_validator(conf):
     return RecordValidator(conf)
 
-@app.route('/', methods=['GET','POST'])
+@app.route('/', methods=['GET'])
 def hello_world():
-    if request.method == 'POST':
-        j = request.get_json()
-        return jsonify(j)
     if request.method == 'GET':
         docs = """
         This is the root of the HierarchicalRecords API Application.
