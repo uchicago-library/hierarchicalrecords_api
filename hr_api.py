@@ -9,9 +9,6 @@ from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
-app = Flask(__name__)
-api = Api(app)
-
 
 def retrieve_record(identifier):
     identifier = secure_filename(identifier)
@@ -127,6 +124,7 @@ class NewRecord(Resource):
                                )
             return jsonify(resp.dictify())
 
+
 class GetRecord(Resource):
     def get(self, identifier):
         try:
@@ -145,11 +143,11 @@ class SetValue(Resource):
     def post(self):
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str)
-            parser.add_argument('key', type=str)
-            parser.add_argument('value', type=str)
+            parser.add_argument('identifier', type=str, required=True)
+            parser.add_argument('key', type=str, required=True)
+            parser.add_argument('value', type=str, required=True)
             parser.add_argument('conf', type=str)
-            args = parser.parse_args(strict=True)
+            args = parser.parse_args()
             identifier = args['identifier']
             key = args['key']
             value = args['value']
@@ -163,6 +161,7 @@ class SetValue(Resource):
                 value = False
             if value == "{}":
                 value = {}
+            print(identifier)
             r = retrieve_record(identifier)
             if conf is not None:
                 v = build_validator(retrieve_conf(conf))
@@ -176,7 +175,7 @@ class SetValue(Resource):
             with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
                 f.write(r.toJSON())
             resp = APIResponse("success",
-                               data={"record": r.data})
+                                data={"record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -258,7 +257,11 @@ class RetrieveValue(Resource):
                                errors=[str(e)])
             return jsonify(resp.dictify())
 
+
+app = Flask(__name__)
+api = Api(app)
 api.add_resource(Root, '/')
+api.add_resource(NewRecord, '/newRecord')
 api.add_resource(GetRecord, '/getRecord/<string:identifier>')
 api.add_resource(SetValue, '/setValue')
 api.add_resource(RemoveValue, '/delValue')
