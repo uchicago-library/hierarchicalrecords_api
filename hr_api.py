@@ -1,17 +1,21 @@
 from flask import Flask
 from flask import request
 from flask import jsonify
+from flask_restful import Resource, Api, reqparse
 from uuid import uuid1
 from os.path import join
+from werkzeug.utils import secure_filename
 
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
 app = Flask(__name__)
+api = Api(app)
 
 
 def retrieve_record(identifier):
+    identifier = secure_filename(identifier)
     r = HierarchicalRecord(from_file=join('/Users/balsamo/test_hr_api_storage', 'records', identifier))
     return r
 
@@ -23,9 +27,8 @@ def retrieve_conf(conf_str):
 def build_validator(conf):
     return RecordValidator(conf)
 
-@app.route('/', methods=['GET'])
-def hello_world():
-    if request.method == 'GET':
+class Root(Resource):
+    def get(self):
         docs = """
         This is the root of the HierarchicalRecords API Application.
         It has the following endpoints:
@@ -41,90 +44,112 @@ def hello_world():
         """
         return docs
 
-@app.route('/newRecord', methods=['POST'])
-def mint_record():
-    identifier = uuid1().hex
-    r = HierarchicalRecord()
-    with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-        f.write(r.toJSON())
-    return identifier
+class NewRecord(Resource):
+    def get(self):
+        identifier = uuid1().hex
+        r = HierarchicalRecord()
+        with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
+            f.write(r.toJSON())
+        return identifier
 
-@app.route('/getRecord/<string:identifier>', methods=['GET'])
-def get_record(identifier):
-    r = retrieve_record(identifier)
-    return r.toJSON()
+    def post(self):
+        return self.get()
 
-@app.route('/setValue', methods=['POST'])
-def set_value():
-    j = request.get_json()
-    identifier = j['identifier']
-    key = j['key']
-    value = j['value']
-    try:
-        conf = j['conf']
-    except KeyError:
-        conf = None
+class GetRecord(Resource):
+    def get(self, identifier):
+        r = retrieve_record(identifier)
+        return jsonify(r.data)
 
-    if value == "True":
-        value = True
-    if value == "False":
-        value = False
-    if value == "{}":
-        value = {}
+class SetValue(Resource):
+    def post(self):
+        parser = reqparse.RequestParser()
+        parser.add_argument('identifier', type=str)
+        parser.add_argument('key', type=str)
+        parser.add_argument('value', type=str)
+        parser.add_argument('conf', type=str)
+        args = parser.parse_args(strict=True)
+        identifier = args['identifier']
+        key = args['key']
+        value = args['value']
+        try:
+            conf = args['conf']
+        except KeyError:
+            conf = None
 
-    r = retrieve_record(identifier)
+        if value == "True":
+            value = True
+        if value == "False":
+            value = False
+        if value == "{}":
+            value = {}
 
-    if conf is not None:
-        v = build_validator(retrieve_conf(conf))
-        r[key] = value
-        if v.validate(r)[0]:
-            pass
+        r = retrieve_record(identifier)
+
+        if conf is not None:
+            v = build_validator(retrieve_conf(conf))
+            r[key] = value
+            if v.validate(r)[0]:
+                pass
+            else:
+                return "BAD NO"
+
         else:
-            return "BAD NO"
+            r[key] = value
 
-    else:
-        r[key] = value
+        with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
+            f.write(r.toJSON())
 
-    with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-        f.write(r.toJSON())
+        return jsonify(r.data)
 
-    return r.toJSON()
+class RemoveValue(Resource):
+    def post(self):
+        parser = reqparse.RequestParser()
+        parser.add_argument('identifier', type=str)
+        parser.add_argument('key', type=str)
+        parser.add_argument('value', type=str)
+        parser.add_argument('conf', type=str)
+        args = parser.parse_args(strict=True)
+        identifier = args['identifier']
+        key = args['key']
+        value = args['value']
 
-@app.route('/delValue')
-def remove_value():
-    j = request.get_json()
+        try:
+            conf = args['conf']
+        except KeyError:
+            conf = None
 
-    identifier = j['identifier']
-    key = j['key']
-    value = j['value']
-    try:
-        conf = j['conf']
-    except KeyError:
-        conf = None
+        r = retrieve_record(identifier)
 
-    r = retrieve_record(identifier)
+        if conf is not None:
+            v = build_validator(retrieve_conf(conf))
+            del r[key]
+            if v.validate(r)[0]:
+                pass
+            else:
+                return "BAD NO"
 
-    if conf is not None:
-        v = build_validator(retrieve_conf(conf))
-        del r[key]
-        if v.validate(r)[0]:
-            pass
         else:
-            return "BAD NO"
+            del r[key]
 
-    else:
-        del r[key]
+        with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
+            f.write(r.toJSON())
+        return jsonify(r.data)
 
-    with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-        f.write(r.toJSON())
-    return r.toJSON()
+class Validate(Resource):
+    def post(self):
+        parser = reqparse.RequestParser()
+        parser.add_argument('identifier', type=str)
+        parser.add_argument('conf', type=str)
+        args = parser.parse_args(strict=True)
 
-@app.route('/validate')
-def validate(identifier, conf):
-    j = request.get_json()
+        conf = args['conf']
+        identifier = args['identifier']
 
-    identifier = j['identifier']
-    conf = j['conf']
+        v = build_validator(retrieve_conf(conf))
+        return str(v.validate(retrieve_record(identifier)))
 
-    v = build_validator(retrieve_conf(conf))
-    return str(v.validate(retrieve_record(identifier)))
+api.add_resource(Root, '/')
+api.add_resource(GetRecord, '/getRecord/<string:identifier>')
+api.add_resource(SetValue, '/setValue')
+api.add_resource(RemoveValue, '/delValue')
+api.add_resource(Validate, '/validate')
