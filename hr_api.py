@@ -1,5 +1,4 @@
 from flask import Flask
-from flask import request
 from flask import jsonify
 from flask_restful import Resource, Api, reqparse
 from uuid import uuid1
@@ -16,18 +15,27 @@ api = Api(app)
 
 def retrieve_record(identifier):
     identifier = secure_filename(identifier)
-    r = HierarchicalRecord(from_file=join('/Users/balsamo/test_hr_api_storage', 'records', identifier))
+    r = HierarchicalRecord(
+        from_file=join(
+            '/Users/balsamo/test_hr_api_storage', 'records', identifier
+        )
+    )
     return r
+
 
 def retrieve_conf(conf_str):
     c = RecordConf()
-    c.from_csv(join('/Users/balsamo/test_hr_api_storage', 'confs', conf_str+".csv"))
+    c.from_csv(
+        join('/Users/balsamo/test_hr_api_storage', 'confs', conf_str+".csv")
+    )
     return c
+
 
 def build_validator(conf):
     return RecordValidator(conf)
 
-class APIResponse(Object):
+
+class APIResponse(object):
 
     _status = None
     _data = None
@@ -58,7 +66,7 @@ class APIResponse(Object):
         return self._errors
 
     def set_errors(self, errors):
-        if errors == None:
+        if errors is None:
             self._errors = None
             return
         try:
@@ -94,6 +102,7 @@ class Root(Resource):
         """
         return docs
 
+
 class NewRecord(Resource):
     def get(self):
         identifier = uuid1().hex
@@ -105,10 +114,12 @@ class NewRecord(Resource):
     def post(self):
         return self.get()
 
+
 class GetRecord(Resource):
     def get(self, identifier):
         r = retrieve_record(identifier)
         return jsonify(r.data)
+
 
 class SetValue(Resource):
     def post(self):
@@ -145,6 +156,7 @@ class SetValue(Resource):
             f.write(r.toJSON())
         return jsonify(r.data)
 
+
 class RemoveValue(Resource):
     def post(self):
         parser = reqparse.RequestParser()
@@ -155,7 +167,6 @@ class RemoveValue(Resource):
         args = parser.parse_args(strict=True)
         identifier = args['identifier']
         key = args['key']
-        value = args['value']
         try:
             conf = args['conf']
         except KeyError:
@@ -174,6 +185,7 @@ class RemoveValue(Resource):
             f.write(r.toJSON())
         return jsonify(r.data)
 
+
 class Validate(Resource):
     def post(self):
         parser = reqparse.RequestParser()
@@ -187,6 +199,7 @@ class Validate(Resource):
         v = build_validator(retrieve_conf(conf))
         return str(v.validate(retrieve_record(identifier)))
 
+
 class RetrieveValue(Resource):
     def post(self):
         parser = reqparse.RequestParser()
@@ -194,8 +207,8 @@ class RetrieveValue(Resource):
         parser.add_argument('key', type=str)
         args = parser.parse_args(strict=True)
 
-        r = retrieve_record(identifier)
-        return r[args[key]]
+        r = retrieve_record(args['identifier'])
+        return r[args['key']]
 
 api.add_resource(Root, '/')
 api.add_resource(GetRecord, '/getRecord/<string:identifier>')
