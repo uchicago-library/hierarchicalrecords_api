@@ -43,8 +43,8 @@ class APIResponse(object):
 
     def __init__(self, status, data=None, errors=None):
         self.status = status
-        self.data = None
-        self.errors = None
+        self.data = data
+        self.errors = errors
 
     def get_status(self):
         return self._status
@@ -70,6 +70,7 @@ class APIResponse(object):
             self._errors = None
             return
         try:
+            self._errors = []
             for x in errors:
                 self.add_error(x)
         except TypeError:
@@ -79,6 +80,13 @@ class APIResponse(object):
         if not isinstance(error, str):
             raise ValueError("error must be a string")
         self._errors.append(error)
+
+    def dictify(self):
+        r = {}
+        r['status'] = self.status
+        r['data'] = self.data
+        r['errors'] = self.errors
+        return r
 
     errors = property(get_errors, set_errors)
     data = property(get_data, set_data)
@@ -105,110 +113,150 @@ class Root(Resource):
 
 class NewRecord(Resource):
     def get(self):
-        identifier = uuid1().hex
-        r = HierarchicalRecord()
-        with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-            f.write(r.toJSON())
-        return identifier
-
-    def post(self):
-        return self.get()
-
+        try:
+            identifier = uuid1().hex
+            r = HierarchicalRecord()
+            with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
+                f.write(r.toJSON())
+            resp = APIResponse("success",
+                               data={"identifier": identifier})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)]
+                               )
+            return jsonify(resp.dictify())
 
 class GetRecord(Resource):
     def get(self, identifier):
-        r = retrieve_record(identifier)
-        return jsonify(r.data)
+        try:
+            r = retrieve_record(identifier)
+            resp = APIResponse("success",
+                               data={"record": r.data})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)]
+                               )
+            return jsonify(resp.dictify())
 
 
 class SetValue(Resource):
     def post(self):
-        parser = reqparse.RequestParser()
-        parser.add_argument('identifier', type=str)
-        parser.add_argument('key', type=str)
-        parser.add_argument('value', type=str)
-        parser.add_argument('conf', type=str)
-        args = parser.parse_args(strict=True)
-        identifier = args['identifier']
-        key = args['key']
-        value = args['value']
         try:
-            conf = args['conf']
-        except KeyError:
-            conf = None
-        if value == "True":
-            value = True
-        if value == "False":
-            value = False
-        if value == "{}":
-            value = {}
-        r = retrieve_record(identifier)
-        if conf is not None:
-            v = build_validator(retrieve_conf(conf))
-            r[key] = value
-            if v.validate(r)[0]:
-                pass
+            parser = reqparse.RequestParser()
+            parser.add_argument('identifier', type=str)
+            parser.add_argument('key', type=str)
+            parser.add_argument('value', type=str)
+            parser.add_argument('conf', type=str)
+            args = parser.parse_args(strict=True)
+            identifier = args['identifier']
+            key = args['key']
+            value = args['value']
+            try:
+                conf = args['conf']
+            except KeyError:
+                conf = None
+            if value == "True":
+                value = True
+            if value == "False":
+                value = False
+            if value == "{}":
+                value = {}
+            r = retrieve_record(identifier)
+            if conf is not None:
+                v = build_validator(retrieve_conf(conf))
+                r[key] = value
+                if v.validate(r)[0]:
+                    pass
+                else:
+                    return "BAD NO"
             else:
-                return "BAD NO"
-        else:
-            r[key] = value
-        with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-            f.write(r.toJSON())
-        return jsonify(r.data)
+                r[key] = value
+            with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
+                f.write(r.toJSON())
+            resp = APIResponse("success",
+                               data={"record": r.data})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
 
 
 class RemoveValue(Resource):
     def post(self):
-        parser = reqparse.RequestParser()
-        parser.add_argument('identifier', type=str)
-        parser.add_argument('key', type=str)
-        parser.add_argument('value', type=str)
-        parser.add_argument('conf', type=str)
-        args = parser.parse_args(strict=True)
-        identifier = args['identifier']
-        key = args['key']
         try:
-            conf = args['conf']
-        except KeyError:
-            conf = None
-        r = retrieve_record(identifier)
-        if conf is not None:
-            v = build_validator(retrieve_conf(conf))
-            del r[key]
-            if v.validate(r)[0]:
-                pass
+            parser = reqparse.RequestParser()
+            parser.add_argument('identifier', type=str)
+            parser.add_argument('key', type=str)
+            parser.add_argument('value', type=str)
+            parser.add_argument('conf', type=str)
+            args = parser.parse_args(strict=True)
+            identifier = args['identifier']
+            key = args['key']
+            try:
+                conf = args['conf']
+            except KeyError:
+                conf = None
+            r = retrieve_record(identifier)
+            if conf is not None:
+                v = build_validator(retrieve_conf(conf))
+                del r[key]
+                if v.validate(r)[0]:
+                    pass
+                else:
+                    resp = APIResponse("fail", errors=['Operation would compromise record validity.'])
+                    return jsonify(resp.dictify())
             else:
-                return "BAD NO"
-        else:
-            del r[key]
-        with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-            f.write(r.toJSON())
-        return jsonify(r.data)
+                del r[key]
+            with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
+                f.write(r.toJSON())
+            resp = APIResponse("success",
+                               data={"record": r.data})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
 
 
 class Validate(Resource):
     def post(self):
-        parser = reqparse.RequestParser()
-        parser.add_argument('identifier', type=str)
-        parser.add_argument('conf', type=str)
-        args = parser.parse_args(strict=True)
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('identifier', type=str)
+            parser.add_argument('conf', type=str)
+            args = parser.parse_args(strict=True)
 
-        conf = args['conf']
-        identifier = args['identifier']
+            conf = args['conf']
+            identifier = args['identifier']
 
-        v = build_validator(retrieve_conf(conf))
-        return str(v.validate(retrieve_record(identifier)))
+            v = build_validator(retrieve_conf(conf))
+            resp = APIResponse("success",
+                               data={"valid": str(v.validate(retrieve_record(identifier)))})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
 
 
 class RetrieveValue(Resource):
     def post(self):
-        parser = reqparse.RequestParser()
-        parser.add_argument('identifier', type=str)
-        parser.add_argument('key', type=str)
-        args = parser.parse_args(strict=True)
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('identifier', type=str)
+            parser.add_argument('key', type=str)
+            args = parser.parse_args(strict=True)
 
-        r = retrieve_record(args['identifier'])
-        return r[args['key']]
+            r = retrieve_record(args['identifier'])
+            resp = APIResponse("success", data={"value": r[args["key"]]})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
 
 api.add_resource(Root, '/')
 api.add_resource(GetRecord, '/getRecord/<string:identifier>')
