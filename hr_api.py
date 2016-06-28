@@ -75,16 +75,13 @@ class SetValue(Resource):
             conf = args['conf']
         except KeyError:
             conf = None
-
         if value == "True":
             value = True
         if value == "False":
             value = False
         if value == "{}":
             value = {}
-
         r = retrieve_record(identifier)
-
         if conf is not None:
             v = build_validator(retrieve_conf(conf))
             r[key] = value
@@ -92,13 +89,10 @@ class SetValue(Resource):
                 pass
             else:
                 return "BAD NO"
-
         else:
             r[key] = value
-
         with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
             f.write(r.toJSON())
-
         return jsonify(r.data)
 
 class RemoveValue(Resource):
@@ -112,14 +106,11 @@ class RemoveValue(Resource):
         identifier = args['identifier']
         key = args['key']
         value = args['value']
-
         try:
             conf = args['conf']
         except KeyError:
             conf = None
-
         r = retrieve_record(identifier)
-
         if conf is not None:
             v = build_validator(retrieve_conf(conf))
             del r[key]
@@ -127,10 +118,8 @@ class RemoveValue(Resource):
                 pass
             else:
                 return "BAD NO"
-
         else:
             del r[key]
-
         with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
             f.write(r.toJSON())
         return jsonify(r.data)
@@ -148,8 +137,19 @@ class Validate(Resource):
         v = build_validator(retrieve_conf(conf))
         return str(v.validate(retrieve_record(identifier)))
 
+class RetrieveValue(Resource):
+    def post(self):
+        parser = reqparse.RequestParser()
+        parser.add_argument('identifier', type=str)
+        parser.add_argument('key', type=str)
+        args = parser.parse_args(strict=True)
+
+        r = retrieve_record(identifier)
+        return r[args[key]]
+
 api.add_resource(Root, '/')
 api.add_resource(GetRecord, '/getRecord/<string:identifier>')
 api.add_resource(SetValue, '/setValue')
 api.add_resource(RemoveValue, '/delValue')
 api.add_resource(Validate, '/validate')
+api.add_resource(RetrieveValue, '/getValue')
