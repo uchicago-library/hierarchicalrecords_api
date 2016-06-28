@@ -20,6 +20,14 @@ def retrieve_record(identifier):
     return r
 
 
+def write_record(record, identifier):
+    identifier = secure_filename(identifier)
+    with open(
+        join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w'
+    ) as f:
+        f.write(record.toJSON())
+
+
 def retrieve_conf(conf_str):
     c = RecordConf()
     c.from_csv(
@@ -113,8 +121,7 @@ class NewRecord(Resource):
         try:
             identifier = uuid1().hex
             r = HierarchicalRecord()
-            with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-                f.write(r.toJSON())
+            write_record(r, identifier)
             resp = APIResponse("success",
                                data={"identifier": identifier})
             return jsonify(resp.dictify())
@@ -169,13 +176,15 @@ class SetValue(Resource):
                 if v.validate(r)[0]:
                     pass
                 else:
-                    return "BAD NO"
+                    resp = APIResponse("fail",
+                                       errors=['Operation would compromise ' +
+                                               'record validity.'])
+                    return jsonify(resp.dictify())
             else:
                 r[key] = value
-            with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-                f.write(r.toJSON())
+            write_record(r, identifier)
             resp = APIResponse("success",
-                                data={"record": r.data})
+                               data={"record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -201,16 +210,27 @@ class RemoveValue(Resource):
             r = retrieve_record(identifier)
             if conf is not None:
                 v = build_validator(retrieve_conf(conf))
-                del r[key]
+                try:
+                    del r[key]
+                except KeyError:
+                    resp = APIResponse("fail",
+                                       errors=['Key Error: {}'.format(key)])
+                    return jsonify(resp.dictify())
                 if v.validate(r)[0]:
                     pass
                 else:
-                    resp = APIResponse("fail", errors=['Operation would compromise record validity.'])
+                    resp = APIResponse("fail",
+                                       errors=['Operation would compromise ' +
+                                               'record validity.'])
                     return jsonify(resp.dictify())
             else:
-                del r[key]
-            with open(join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w') as f:
-                f.write(r.toJSON())
+                try:
+                    del r[key]
+                except KeyError:
+                    resp = APIResponse("fail",
+                                       errors=['Key Error: {}'.format(key)])
+                    return jsonify(resp.dictify())
+            write_record(r, identifier)
             resp = APIResponse("success",
                                data={"record": r.data})
             return jsonify(resp.dictify())
@@ -232,8 +252,9 @@ class Validate(Resource):
             identifier = args['identifier']
 
             v = build_validator(retrieve_conf(conf))
+            validity = str(v.validate(retrieve_record(identifier)))
             resp = APIResponse("success",
-                               data={"valid": str(v.validate(retrieve_record(identifier)))})
+                               data={"valid": validity})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -250,7 +271,13 @@ class RetrieveValue(Resource):
             args = parser.parse_args(strict=True)
 
             r = retrieve_record(args['identifier'])
-            resp = APIResponse("success", data={"value": r[args["key"]]})
+            try:
+                val = r[args["key"]]
+            except KeyError:
+                resp = APIResponse("fail",
+                                   errors=['Key Error: {}'.format(args["key"])])
+                return jsonify(resp.dictify())
+            resp = APIResponse("success", data={"value": val})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
