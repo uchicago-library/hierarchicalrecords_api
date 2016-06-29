@@ -173,12 +173,12 @@ class SetValue(Resource):
             if conf is not None:
                 v = build_validator(retrieve_conf(conf))
                 r[key] = value
-                if v.validate(r)[0]:
+                validity = v.validate(r)
+                if validity[0]:
                     pass
                 else:
                     resp = APIResponse("fail",
-                                       errors=['Operation would compromise ' +
-                                               'record validity.'])
+                                       errors=validity[1])
                     return jsonify(resp.dictify())
             else:
                 r[key] = value
@@ -216,12 +216,12 @@ class RemoveValue(Resource):
                     resp = APIResponse("fail",
                                        errors=['Key Error: {}'.format(key)])
                     return jsonify(resp.dictify())
-                if v.validate(r)[0]:
+                validity = v.validate(r)
+                if validity[0]:
                     pass
                 else:
                     resp = APIResponse("fail",
-                                       errors=['Operation would compromise ' +
-                                               'record validity.'])
+                                       errors=validity[1])
                     return jsonify(resp.dictify())
             else:
                 try:
@@ -245,7 +245,7 @@ class Validate(Resource):
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('identifier', type=str)
-            parser.add_argument('conf', type=str)
+            parser.add_argument('conf', type=str, required=True)
             args = parser.parse_args(strict=True)
 
             conf = args['conf']
