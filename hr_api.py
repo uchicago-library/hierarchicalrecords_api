@@ -127,7 +127,7 @@ class NewRecord(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[{"message": str(e)}]
+                               errors=[str(e)]
                                )
             return jsonify(resp.dictify())
 
@@ -141,7 +141,7 @@ class GetRecord(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[{"message":str(e)}]
+                               errors=[str(e)]
                                )
             return jsonify(resp.dictify())
 
@@ -177,8 +177,8 @@ class SetValue(Resource):
                     pass
                 else:
                     resp = APIResponse("fail",
-                                       errors=[{"message":'Operation would compromise ' +
-                                               'record validity.'}])
+                                       errors=['Operation would compromise ' +
+                                               'record validity.'])
                     return jsonify(resp.dictify())
             else:
                 r[key] = value
@@ -188,7 +188,7 @@ class SetValue(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[{"message":str(e)}])
+                               errors=[str(e)])
             return jsonify(resp.dictify())
 
 
@@ -214,21 +214,21 @@ class RemoveValue(Resource):
                     del r[key]
                 except KeyError:
                     resp = APIResponse("fail",
-                                       errors=[{'Key Error': '{}'.format(key)}])
+                                       errors=['Key Error: {}'.format(key)])
                     return jsonify(resp.dictify())
                 if v.validate(r)[0]:
                     pass
                 else:
                     resp = APIResponse("fail",
-                                       errors=[{"message":'Operation would compromise ' +
-                                               'record validity.'}])
+                                       errors=['Operation would compromise ' +
+                                               'record validity.'])
                     return jsonify(resp.dictify())
             else:
                 try:
                     del r[key]
                 except KeyError:
                     resp = APIResponse("fail",
-                                       errors=[{'Key Error': '{}'.format(key)}])
+                                       errors=['Key Error: {}'.format(key)])
                     return jsonify(resp.dictify())
             write_record(r, identifier)
             resp = APIResponse("success",
@@ -236,7 +236,7 @@ class RemoveValue(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[{'message':str(e)}])
+                               errors=[str(e)])
             return jsonify(resp.dictify())
 
 
@@ -258,7 +258,7 @@ class Validate(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[{"message":str(e)}])
+                               errors=[str(e)])
             return jsonify(resp.dictify())
 
 
@@ -275,13 +275,13 @@ class RetrieveValue(Resource):
                 val = r[args["key"]]
             except KeyError:
                 resp = APIResponse("fail",
-                                   errors=[{'Key Error': '{}'.format(args["key"])}])
+                                   errors=['Key Error: {}'.format(args["key"])])
                 return jsonify(resp.dictify())
             resp = APIResponse("success", data={"value": val})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[{'message':str(e)}])
+                               errors=[str(e)])
             return jsonify(resp.dictify())
 
 
