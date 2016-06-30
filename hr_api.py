@@ -13,6 +13,7 @@ from hierarchicalrecord.recordvalidator import RecordValidator
 
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
 
+
 def only_alphanumeric(x):
     if _ALPHANUM_PATTERN.match(x):
         return True
@@ -60,6 +61,17 @@ def get_category(category):
         pass
     return c
 
+
+def get_categories():
+    r = []
+    for x in scandir(join('/Users/balsamo/test_hr_api_storage', 'org')):
+        if not x.is_file():
+            continue
+        c = get_category(x.name)
+        r.append(c)
+    return r
+
+
 def get_existing_record_identifiers():
     return (x.name for x in scandir(
         join(
@@ -102,7 +114,9 @@ class RecordCategory(object):
                 atleast_one = True
                 del self.records[i]
         if not atleast_one and whiff_is_error:
-            raise ValueError("{} doesn't appear in the records list".format(record_id))
+            raise ValueError(
+                "{} doesn't appear in the records list".format(record_id)
+            )
 
     def serialize(self):
         outpath = join('/Users/balsamo/test_hr_api_storage', 'org', self.title)
@@ -110,7 +124,6 @@ class RecordCategory(object):
         with open(outpath, 'w') as f:
             for x in self.records:
                 f.write(x+'\n')
-
 
     title = property(get_title, set_title)
     records = property(get_records, set_records)
@@ -458,7 +471,7 @@ class ListCategory(Resource):
                 raise ValueError("Categories have to be alpha-numeric.")
 
             c = get_category(category)
-            data = {"category":category,
+            data = {"category": category,
                     "records": c.records}
             resp = APIResponse("success", data=data)
             return jsonify(resp.dictify())
@@ -468,6 +481,26 @@ class ListCategory(Resource):
                                errors=[str(e)])
             return jsonify(resp.dictify())
 
+
+class GetCategories(Resource):
+    def get(self, identifier):
+        try:
+            if not only_alphanumeric(identifier):
+                raise ValueError("Identifiers must be alphanumeric.")
+            exists_in = None
+            categories = get_categories()
+            for c in categories:
+                if identifier in c.records:
+                    if exists_in is None:
+                        exists_in = []
+                    exists_in.append(c.title)
+            resp = APIResponse("success", data={"identifier": identifier,
+                                                "categories": exists_in})
+            return jsonify(resp.dictify())
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
 
 
 app = Flask(__name__)
@@ -482,3 +515,4 @@ api.add_resource(RetrieveValue, '/getValue')
 api.add_resource(AssociateRecord, '/associateRecord')
 api.add_resource(DisassociateRecord, '/disassociateRecord')
 api.add_resource(ListCategory, '/listCategory/<string:category>')
+api.add_resource(GetCategories, '/getCategories/<string:identifier>')
