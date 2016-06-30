@@ -47,6 +47,63 @@ def retrieve_conf(conf_str):
 def build_validator(conf):
     return RecordValidator(conf)
 
+def get_category(category):
+    c = RecordCategory(category)
+    p = join('/Users/balsamo/test_hr_api_storage', 'org', category)
+    try:
+        with open(p, 'r') as f:
+            for line in f.readlines():
+                c.add_record(line.rstrip('\n'))
+    except FileNotFoundError:
+        pass
+    return c
+
+
+class RecordCategory(object):
+    def __init__(self, title):
+        self._title = None
+        self._records = []
+        self.title = title
+
+    def get_title(self):
+        return self._title
+
+    def set_title(self, title):
+        if not only_alphanumeric(title):
+            raise ValueError("Category titles can only be alphanumeric")
+        self._title = title
+
+    def get_records(self):
+        return self._records
+
+    def set_records(self, record_ids):
+        self._records = []
+        for x in record_ids:
+            self.add_record(x)
+
+    def add_record(self, record_id):
+        self._records.append(record_id)
+
+    def remove_record(self, record_id, whiff_is_error=False):
+        atleast_one = False
+        for i, x in enumerate(self.records):
+            if x == record_id:
+                atleast_one = True
+                del self.records[i]
+        if not atleast_one and whiff_is_error:
+            raise ValueError("{} doesn't appear in the records list".format(record_id))
+
+    def serialize(self):
+        outpath = join('/Users/balsamo/test_hr_api_storage', 'org', self.title)
+        self.records = set(self.records)
+        with open(outpath, 'w') as f:
+            for x in self.records:
+                f.write(x+'\n')
+
+
+    title = property(get_title, set_title)
+    records = property(get_records, set_records)
+
 
 class APIResponse(object):
 
@@ -319,6 +376,82 @@ class RetrieveValue(Resource):
                                errors=[str(e)])
             return jsonify(resp.dictify())
 
+class AssociateRecord(Resource):
+    def post(self):
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('identifier', type=str)
+            parser.add_argument('category', type=str)
+
+            args = parser.parse_args(strict=True)
+
+            if not only_alphanumeric(args['identifier']):
+                raise ValueError("Identifiers may only be alpha-numeric.")
+
+            if not only_alphanumeric(args['category']):
+                raise ValueError("Categories may only be alpha-numeric.")
+
+            category = get_category(args["category"])
+            category.add_record(args['identifier'])
+            category.serialize()
+
+            resp = APIResponse("success",
+                               data={"identifier": args['identifier'],
+                                     "category": args['category']})
+            return jsonify(resp.dictify())
+
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
+
+class DisassociateRecord(Resource):
+    def post(self):
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('identifier', type=str)
+            parser.add_argument('category', type=str)
+
+            args = parser.parse_args(strict=True)
+
+            if not only_alphanumeric(args['identifier']):
+                raise ValueError("Identifiers may only be alpha-numeric.")
+
+            if not only_alphanumeric(args['category']):
+                raise ValueError("Categories may only be alpha-numeric.")
+
+            category = get_category(args["category"])
+            category.remove_record(args['identifier'])
+            category.serialize()
+
+            resp = APIResponse("success",
+                               data={"identifier": args['identifier'],
+                                     "category": args['category']})
+            return jsonify(resp.dictify())
+
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
+
+class ListCategory(Resource):
+    def get(self, category):
+        try:
+            if not only_alphanumeric(category):
+                raise ValueError("Categories have to be alpha-numeric.")
+
+            c = get_category(category)
+            data = {"category":category,
+                    "records": c.records}
+            resp = APIResponse("success", data=data)
+            return jsonify(resp.dictify())
+
+        except Exception as e:
+            resp = APIResponse("fail",
+                               errors=[str(e)])
+            return jsonify(resp.dictify())
+
+
 
 app = Flask(__name__)
 api = Api(app)
@@ -329,3 +462,6 @@ api.add_resource(SetValue, '/setValue')
 api.add_resource(RemoveValue, '/delValue')
 api.add_resource(Validate, '/validate')
 api.add_resource(RetrieveValue, '/getValue')
+api.add_resource(AssociateRecord, '/associateRecord')
+api.add_resource(DisassociateRecord, '/disassociateRecord')
+api.add_resource(ListCategory, '/listCategory/<string:category>')
