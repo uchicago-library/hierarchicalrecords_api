@@ -12,6 +12,7 @@ from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
+_STORAGE_ROOT = '/Users/balsamo/test_hr_api_storage'
 
 
 def only_alphanumeric(x):
@@ -24,7 +25,7 @@ def retrieve_record(identifier):
     identifier = secure_filename(identifier)
     r = HierarchicalRecord(
         from_file=join(
-            '/Users/balsamo/test_hr_api_storage', 'records', identifier
+            _STORAGE_ROOT, 'records', identifier
         )
     )
     return r
@@ -33,7 +34,7 @@ def retrieve_record(identifier):
 def write_record(record, identifier):
     identifier = secure_filename(identifier)
     with open(
-        join('/Users/balsamo/test_hr_api_storage', 'records', identifier), 'w'
+        join(_STORAGE_ROOT, 'records', identifier), 'w'
     ) as f:
         f.write(record.toJSON())
 
@@ -41,7 +42,7 @@ def write_record(record, identifier):
 def retrieve_conf(conf_str):
     c = RecordConf()
     c.from_csv(
-        join('/Users/balsamo/test_hr_api_storage', 'confs', conf_str+".csv")
+        join(_STORAGE_ROOT, 'confs', conf_str+".csv")
     )
     return c
 
@@ -52,7 +53,7 @@ def build_validator(conf):
 
 def get_category(category):
     c = RecordCategory(category)
-    p = join('/Users/balsamo/test_hr_api_storage', 'org', category)
+    p = join(_STORAGE_ROOT, 'org', category)
     try:
         with open(p, 'r') as f:
             for line in f.readlines():
@@ -64,7 +65,7 @@ def get_category(category):
 
 def get_categories():
     r = []
-    for x in scandir(join('/Users/balsamo/test_hr_api_storage', 'org')):
+    for x in scandir(join(_STORAGE_ROOT, 'org')):
         if not x.is_file():
             continue
         c = get_category(x.name)
@@ -75,7 +76,7 @@ def get_categories():
 def get_existing_record_identifiers():
     return (x.name for x in scandir(
         join(
-            '/Users/balsamo/test_hr_api_storage', 'records'
+            _STORAGE_ROOT, 'records'
         )) if x.is_file())
 
 
@@ -119,7 +120,7 @@ class RecordCategory(object):
             )
 
     def serialize(self):
-        outpath = join('/Users/balsamo/test_hr_api_storage', 'org', self.title)
+        outpath = join(_STORAGE_ROOT, 'org', self.title)
         self.records = set(self.records)
         with open(outpath, 'w') as f:
             for x in self.records:
