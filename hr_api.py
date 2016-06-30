@@ -58,7 +58,7 @@ def get_category(category):
         with open(p, 'r') as f:
             for line in f.readlines():
                 c.add_record(line.rstrip('\n'))
-    except FileNotFoundError:
+    except OSError:
         pass
     return c
 
@@ -120,7 +120,10 @@ class RecordCategory(object):
             )
 
     def serialize(self):
-        outpath = join(_STORAGE_ROOT, 'org', self.title)
+        # This shouldn't do anything, and if it does things will break, but
+        # security is security, I guess.
+        t = secure_filename(self.title)
+        outpath = join(_STORAGE_ROOT, 'org', t)
         self.records = set(self.records)
         with open(outpath, 'w') as f:
             for x in self.records:
@@ -210,6 +213,10 @@ class NewRecord(Resource):
     def get(self):
         try:
             identifier = uuid1().hex
+            if not only_alphanumeric(identifier):
+                raise ValueError("Identifiers may only be alpha-numeric. " +
+                                 "This one should always be an apparently " +
+                                 "isn't. My bad.")
             r = HierarchicalRecord()
             write_record(r, identifier)
             resp = APIResponse("success",
@@ -255,8 +262,9 @@ class SetValue(Resource):
             value = args['value']
             try:
                 conf = args['conf']
-                if not only_alphanumeric(conf):
-                    raise ValueError("Configs may only be alpha-meric")
+                if conf is not None:
+                    if not only_alphanumeric(conf):
+                        raise ValueError("Configs may only be alpha-meric")
             except KeyError:
                 conf = None
             if value == "True":
@@ -265,7 +273,6 @@ class SetValue(Resource):
                 value = False
             if value == "{}":
                 value = {}
-            print(identifier)
             r = retrieve_record(identifier)
             if conf is not None:
                 v = build_validator(retrieve_conf(conf))
@@ -275,19 +282,19 @@ class SetValue(Resource):
                     pass
                 else:
                     resp = APIResponse("fail",
-                                       errors=validity[1])
+                                        errors=validity[1])
                     return jsonify(resp.dictify())
             else:
                 r[key] = value
             write_record(r, identifier)
             resp = APIResponse("success",
-                               data={"record": r.data,
-                                     "identifier": identifier,
-                                     "conf": conf})
+                                data={"record": r.data,
+                                        "identifier": identifier,
+                                        "conf": conf})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(e)])
+                               errors=[str(type(e))+": "+str(e)])
             return jsonify(resp.dictify())
 
 
@@ -306,8 +313,9 @@ class RemoveValue(Resource):
             key = args['key']
             try:
                 conf = args['conf']
-                if not only_alphanumeric(conf):
-                    raise ValueError("Configs may only be alpha-meric")
+                if conf is not None:
+                    if not only_alphanumeric(conf):
+                        raise ValueError("Configs may only be alpha-meric")
             except KeyError:
                 conf = None
             r = retrieve_record(identifier)
@@ -361,12 +369,14 @@ class Validate(Resource):
                 raise ValueError("Identifiers may only be alpha-numeric")
 
             v = build_validator(retrieve_conf(conf))
-            validity = v.validate(retrieve_record(identifier))
+            r = retrieve_record(identifier)
+            validity = v.validate(r)
             resp = APIResponse("success",
                                data={"is_valid": validity[0],
                                      "validation_errors": validity[1],
                                      "identifier": identifier,
-                                     "conf": conf})
+                                     "conf": conf,
+                                     "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -392,9 +402,10 @@ class RetrieveValue(Resource):
                 resp = APIResponse("fail",
                                    errors=['Key Error: {}'.format(args["key"])])
                 return jsonify(resp.dictify())
-            resp = APIResponse("success", data={"value": val,
-                                                "identifier": args['identifier'],
-                                                "key": args["key"]})
+            resp = APIResponse("success",
+                               data={"value": val,
+                                     "identifier": args['identifier'],
+                                     "key": args["key"]})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
