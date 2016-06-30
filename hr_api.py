@@ -1,13 +1,21 @@
 from flask import Flask
-from flask import jsonify
+from flask import jsonify, url_for
 from flask_restful import Resource, Api, reqparse
 from uuid import uuid1
 from os.path import join
 from werkzeug.utils import secure_filename
+from re import compile as regex_compile
 
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
+
+_ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
+
+def only_alphanumeric(x):
+    if _ALPHANUM_PATTERN.match(x):
+        return True
+    return False
 
 
 def retrieve_record(identifier):
@@ -135,9 +143,12 @@ class NewRecord(Resource):
 class GetRecord(Resource):
     def get(self, identifier):
         try:
+            if not only_alphanumeric(identifier):
+                raise ValueError("Identifiers may only be alpha-numeric")
             r = retrieve_record(identifier)
             resp = APIResponse("success",
-                               data={"record": r.data})
+                               data={"record": r.data,
+                                     "identifier": identifier})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -156,10 +167,14 @@ class SetValue(Resource):
             parser.add_argument('conf', type=str)
             args = parser.parse_args()
             identifier = args['identifier']
+            if not only_alphanumeric(identifier):
+                raise ValueError("Identifiers may only be alpha-numeric")
             key = args['key']
             value = args['value']
             try:
                 conf = args['conf']
+                if not only_alphanumeric(conf):
+                    raise ValueError("Configs may only be alpha-meric")
             except KeyError:
                 conf = None
             if value == "True":
@@ -184,7 +199,9 @@ class SetValue(Resource):
                 r[key] = value
             write_record(r, identifier)
             resp = APIResponse("success",
-                               data={"record": r.data})
+                               data={"record": r.data,
+                                     "identifier": identifier,
+                                     "conf": conf})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -202,9 +219,13 @@ class RemoveValue(Resource):
             parser.add_argument('conf', type=str)
             args = parser.parse_args(strict=True)
             identifier = args['identifier']
+            if not only_alphanumeric(identifier):
+                raise ValueError("Identifiers may only be alpha-numeric")
             key = args['key']
             try:
                 conf = args['conf']
+                if not only_alphanumeric(conf):
+                    raise ValueError("Configs may only be alpha-meric")
             except KeyError:
                 conf = None
             r = retrieve_record(identifier)
@@ -232,7 +253,9 @@ class RemoveValue(Resource):
                     return jsonify(resp.dictify())
             write_record(r, identifier)
             resp = APIResponse("success",
-                               data={"record": r.data})
+                               data={"record": r.data,
+                                     "identifier": identifier,
+                                     "conf": conf})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -249,12 +272,19 @@ class Validate(Resource):
             args = parser.parse_args(strict=True)
 
             conf = args['conf']
+            if not only_alphanumeric(conf):
+                raise ValueError("Identifiers may only be alpha-numeric")
             identifier = args['identifier']
+            if not only_alphanumeric(identifier):
+                raise ValueError("Identifiers may only be alpha-numeric")
 
             v = build_validator(retrieve_conf(conf))
-            validity = str(v.validate(retrieve_record(identifier)))
+            validity = v.validate(retrieve_record(identifier))
             resp = APIResponse("success",
-                               data={"valid": validity})
+                               data={"is_valid": validity[0],
+                                     "validation_errors": validity[1],
+                                     "identifier": identifier,
+                                     "conf": conf})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
@@ -270,6 +300,9 @@ class RetrieveValue(Resource):
             parser.add_argument('key', type=str)
             args = parser.parse_args(strict=True)
 
+            if not only_alphanumeric(args['identifier']):
+                raise ValueError("Identifiers may only be alpha-numeric")
+
             r = retrieve_record(args['identifier'])
             try:
                 val = r[args["key"]]
@@ -277,7 +310,9 @@ class RetrieveValue(Resource):
                 resp = APIResponse("fail",
                                    errors=['Key Error: {}'.format(args["key"])])
                 return jsonify(resp.dictify())
-            resp = APIResponse("success", data={"value": val})
+            resp = APIResponse("success", data={"value": val,
+                                                "identifier": args['identifier'],
+                                                "key": args["key"]})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
