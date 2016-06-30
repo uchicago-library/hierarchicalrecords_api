@@ -1,7 +1,8 @@
 from flask import Flask
-from flask import jsonify, url_for
+from flask import jsonify
 from flask_restful import Resource, Api, reqparse
 from uuid import uuid1
+from os import scandir
 from os.path import join
 from werkzeug.utils import secure_filename
 from re import compile as regex_compile
@@ -47,6 +48,7 @@ def retrieve_conf(conf_str):
 def build_validator(conf):
     return RecordValidator(conf)
 
+
 def get_category(category):
     c = RecordCategory(category)
     p = join('/Users/balsamo/test_hr_api_storage', 'org', category)
@@ -57,6 +59,12 @@ def get_category(category):
     except FileNotFoundError:
         pass
     return c
+
+def get_existing_record_identifiers():
+    return (x.name for x in scandir(
+        join(
+            '/Users/balsamo/test_hr_api_storage', 'records'
+        )) if x.is_file())
 
 
 class RecordCategory(object):
@@ -82,9 +90,12 @@ class RecordCategory(object):
             self.add_record(x)
 
     def add_record(self, record_id):
-        self._records.append(record_id)
+        if record_id in get_existing_record_identifiers():
+            self._records.append(record_id)
+        else:
+            raise ValueError("That identifier doesn't exist.")
 
-    def remove_record(self, record_id, whiff_is_error=False):
+    def remove_record(self, record_id, whiff_is_error=True):
         atleast_one = False
         for i, x in enumerate(self.records):
             if x == record_id:
@@ -376,6 +387,7 @@ class RetrieveValue(Resource):
                                errors=[str(e)])
             return jsonify(resp.dictify())
 
+
 class AssociateRecord(Resource):
     def post(self):
         try:
@@ -391,6 +403,9 @@ class AssociateRecord(Resource):
             if not only_alphanumeric(args['category']):
                 raise ValueError("Categories may only be alpha-numeric.")
 
+            if args['identifier'] not in get_existing_record_identifiers():
+                raise ValueError("That identifier doesn't exist.")
+
             category = get_category(args["category"])
             category.add_record(args['identifier'])
             category.serialize()
@@ -404,6 +419,7 @@ class AssociateRecord(Resource):
             resp = APIResponse("fail",
                                errors=[str(e)])
             return jsonify(resp.dictify())
+
 
 class DisassociateRecord(Resource):
     def post(self):
@@ -433,6 +449,7 @@ class DisassociateRecord(Resource):
             resp = APIResponse("fail",
                                errors=[str(e)])
             return jsonify(resp.dictify())
+
 
 class ListCategory(Resource):
     def get(self, category):
