@@ -2,7 +2,7 @@ from flask import Flask
 from flask import jsonify
 from flask_restful import Resource, Api, reqparse
 from uuid import uuid1
-from os import scandir
+from os import scandir, remove
 from os.path import join
 from werkzeug.utils import secure_filename
 from re import compile as regex_compile
@@ -11,8 +11,15 @@ from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
+
+# Globals
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
+_NUMERIC_PATTERN = regex_compile("^[0-9]+$")
 _STORAGE_ROOT = '/Users/balsamo/test_hr_api_storage'
+
+
+# Most of these are abstracted because they should be hooked
+# to some kind of database model in the future
 
 
 def only_alphanumeric(x):
@@ -23,6 +30,8 @@ def only_alphanumeric(x):
 
 def retrieve_record(identifier):
     identifier = secure_filename(identifier)
+    if not only_alphanumeric(identifier):
+        raise ValueError("Record identifiers must be alphanumeric.")
     r = HierarchicalRecord(
         from_file=join(
             _STORAGE_ROOT, 'records', identifier
@@ -33,25 +42,54 @@ def retrieve_record(identifier):
 
 def write_record(record, identifier):
     identifier = secure_filename(identifier)
+    if not only_alphanumeric(identifier):
+        raise ValueError("Record identifiers must be alphanumeric.")
     with open(
         join(_STORAGE_ROOT, 'records', identifier), 'w'
     ) as f:
         f.write(record.toJSON())
 
 
+def delete_record(identifier):
+    identifier = secure_filename(identifier)
+    if not only_alphanumeric(identifier):
+        raise ValueError("Record identifiers must be alphanumeric.")
+    rec_path = join(_STORAGE_ROOT, 'records', identifier)
+    remove(rec_path)
+
+
 def retrieve_conf(conf_str):
+    conf_str = secure_filename(conf_str)
     c = RecordConf()
+    if not only_alphanumeric(conf_str):
+        raise ValueError("Conf identifiers must be alphanumeric.")
     c.from_csv(
         join(_STORAGE_ROOT, 'confs', conf_str+".csv")
     )
     return c
 
 
+def delete_conf(identifier):
+    identifier = secure_filename(identifier)
+    if not only_alphanumeric(identifier):
+        raise ValueError("Conf identifiers must be alphanumeric.")
+    rec_path = join(_STORAGE_ROOT, 'confs', identifier+".csv")
+    remove(rec_path)
+
+
 def build_validator(conf):
     return RecordValidator(conf)
 
 
+def retrieve_validator(conf_id):
+    c = retrieve_conf(conf_id)
+    return build_validator(c)
+
+
 def get_category(category):
+    category = secure_filename(category)
+    if not only_alphanumeric(category):
+        raise ValueError("Category identifiers must be alphanumeric.")
     c = RecordCategory(category)
     p = join(_STORAGE_ROOT, 'org', category)
     try:
@@ -78,6 +116,19 @@ def get_existing_record_identifiers():
         join(
             _STORAGE_ROOT, 'records'
         )) if x.is_file())
+
+
+def parse_value(value):
+    if value is "True":
+        return True
+    elif value is "False":
+        return False
+    elif value is "{}":
+        return {}
+    elif _NUMERIC_PATTERN.match(value):
+        return int(value)
+    else:
+        return value
 
 
 class RecordCategory(object):
@@ -120,7 +171,8 @@ class RecordCategory(object):
             )
 
     def serialize(self):
-        # This shouldn't do anything, and if it does things will break, but
+        # This next line shouldn't do anything,
+        # and if it does things will break, but
         # security is security, I guess.
         t = secure_filename(self.title)
         outpath = join(_STORAGE_ROOT, 'org', t)
@@ -172,7 +224,7 @@ class APIResponse(object):
             for x in errors:
                 self.add_error(x)
         except TypeError:
-            raise ValueError("errors must be an iterable")
+            raise ValueError("errors must be an iterable of strings")
 
     def add_error(self, error):
         if not isinstance(error, str):
@@ -194,6 +246,11 @@ class APIResponse(object):
 class Root(Resource):
     def get(self):
         docs = """
+        All this information is out of date - but I'm leaving it in place
+        so that in the future I remember to update it.
+
+        #############
+
         This is the root of the HierarchicalRecords API Application.
         It has the following endpoints:
 
@@ -209,28 +266,92 @@ class Root(Resource):
         return docs
 
 
-class NewRecord(Resource):
+class RecordsRoot(Resource):
     def get(self):
+        # List all records
         try:
+            r = APIResponse(
+                "success",
+                data={"records": [x for x in get_existing_record_identifiers()]}
+            )
+            return jsonify(r.dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+# This function appears to be tricky because of nesting data structures in an
+# iterable while still utilizing the RequestParser class. I'll have a look at it
+# in the future.
+#
+#    def put(self):
+#        # Bulk upload?
+#        try:
+#            parser = reqparse.RequestParser()
+#            parser.add_argument('records', type=list)
+#            args = parser.parse_args()
+#            ids = []
+#            if args.records:
+#                for x in args.records:
+#                    hr = HierarchicalRecord()
+#                    hr.data = loads(x)
+#                    identifier = uuid1().hex
+#                    write_record(hr, identifier)
+#                    ids.append({"identifier": identifier, "record": hr.data})
+#            return jsonify(
+#                APIResponse("success", data={"identifiers": ids}).dictify()
+#            )
+#        except Exception as e:
+#            resp = APIResponse("fail",
+#                               errors=[str(type(e)) + ":" + str(e)]
+#                               )
+#            return jsonify(resp.dictify())
+
+    def post(self):
+        # New Record
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('record', type=dict)
+            parser.add_argument('conf', type=str)
+            args = parser.parse_args()
             identifier = uuid1().hex
             if not only_alphanumeric(identifier):
                 raise ValueError("Identifiers may only be alpha-numeric. " +
-                                 "This one should always be an apparently " +
+                                 "This one should always be and apparently " +
                                  "isn't. My bad.")
             r = HierarchicalRecord()
+            if args['record']:
+                r.data = args['record']
+            if args['conf']:
+                validator = retrieve_validator(args['conf'])
+                validity = validator.validate(r)
+                if not validity[0]:
+                    return jsonify(
+                        APIResponse("fail", errors=validity[1]).dictify()
+                    )
             write_record(r, identifier)
             resp = APIResponse("success",
-                               data={"identifier": identifier})
+                               data={"identifier": identifier,
+                                     "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(e)]
-                               )
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+    def delete(self):
+        try:
+            deleted = []
+            for x in get_existing_record_identifiers():
+                delete_record(x)
+                deleted.append(x)
+            return jsonify(
+                APIResponse("success",
+                            data={"deleted_identifiers": deleted}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
 
-class GetRecord(Resource):
+class RecordRoot(Resource):
     def get(self, identifier):
+        # Get the whole record
         try:
             if not only_alphanumeric(identifier):
                 raise ValueError("Identifiers may only be alpha-numeric")
@@ -240,178 +361,164 @@ class GetRecord(Resource):
                                      "identifier": identifier})
             return jsonify(resp.dictify())
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(e)]
-                               )
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
-
-class SetValue(Resource):
-    def post(self):
+    def put(self, identifier):
+        # overwrite a whole record
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str, required=True)
-            parser.add_argument('key', type=str, required=True)
-            parser.add_argument('value', type=str, required=True)
+            parser.add_argument('record', type=dict, required=True)
             parser.add_argument('conf', type=str)
             args = parser.parse_args()
-            identifier = args['identifier']
-            if not only_alphanumeric(identifier):
-                raise ValueError("Identifiers may only be alpha-numeric")
-            key = args['key']
-            value = args['value']
-            try:
-                conf = args['conf']
-                if conf is not None:
-                    if not only_alphanumeric(conf):
-                        raise ValueError("Configs may only be alpha-meric")
-            except KeyError:
-                conf = None
-            if value == "True":
-                value = True
-            if value == "False":
-                value = False
-            if value == "{}":
-                value = {}
-            r = retrieve_record(identifier)
-            if conf is not None:
-                v = build_validator(retrieve_conf(conf))
-                r[key] = value
-                validity = v.validate(r)
-                if validity[0]:
-                    pass
-                else:
-                    resp = APIResponse("fail",
-                                        errors=validity[1])
-                    return jsonify(resp.dictify())
-            else:
-                r[key] = value
-            write_record(r, identifier)
-            resp = APIResponse("success",
-                                data={"record": r.data,
-                                        "identifier": identifier,
-                                        "conf": conf})
-            return jsonify(resp.dictify())
+            record = retrieve_record(identifier)
+            record.data = args.record
+            if args['conf']:
+                validator = retrieve_validator(args['conf'])
+                validity = validator.validate(record)
+                if not validity[0]:
+                    return jsonify(
+                        APIResponse("fail", errors=validity[1]).dictify()
+                    )
+            write_record(record, identifier)
+            return jsonify(
+                APIResponse("success",
+                            data={'identifier': identifier,
+                                  'record': record.data}).dictify()
+            )
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(type(e))+": "+str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+    def delete(self, identifier):
+        # delete a record
+        try:
+            delete_record(identifier)
+            return jsonify(
+                APIResponse(
+                    "success", data={'identifier': identifier}
+                ).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+#     Should I add this so that you can request a specific identifier?
+#     def post(self, identifier):
+#         pass
 
 
-class RemoveValue(Resource):
-    def post(self):
+class EntryRoot(Resource):
+    def get(self, identifier, key):
+        try:
+            r = retrieve_record(identifier)
+            v = r[key]
+            return jsonify(
+                APIResponse("success", data={'value': v}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+    def post(self, identifier, key):
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str)
-            parser.add_argument('key', type=str)
-            parser.add_argument('value', type=str)
+            parser.add_argument('value', required=True)
             parser.add_argument('conf', type=str)
-            args = parser.parse_args(strict=True)
-            identifier = args['identifier']
-            if not only_alphanumeric(identifier):
-                raise ValueError("Identifiers may only be alpha-numeric")
-            key = args['key']
-            try:
-                conf = args['conf']
-                if conf is not None:
-                    if not only_alphanumeric(conf):
-                        raise ValueError("Configs may only be alpha-meric")
-            except KeyError:
-                conf = None
+            args = parser.parse_args()
+            v = parse_value(args['value'])
             r = retrieve_record(identifier)
-            if conf is not None:
-                v = build_validator(retrieve_conf(conf))
-                try:
-                    del r[key]
-                except KeyError:
-                    resp = APIResponse("fail",
-                                       errors=['Key Error: {}'.format(key)])
-                    return jsonify(resp.dictify())
-                validity = v.validate(r)
-                if validity[0]:
-                    pass
-                else:
-                    resp = APIResponse("fail",
-                                       errors=validity[1])
-                    return jsonify(resp.dictify())
-            else:
-                try:
-                    del r[key]
-                except KeyError:
-                    resp = APIResponse("fail",
-                                       errors=['Key Error: {}'.format(key)])
-                    return jsonify(resp.dictify())
+            r[key] = v
+            if args['conf']:
+                validator = retrieve_validator(args['conf'])
+                validity = validator.validate(r)
+                if not validity[0]:
+                    return jsonify(
+                        APIResponse("fail", errors=validity[1]).dictify()
+                    )
             write_record(r, identifier)
-            resp = APIResponse("success",
-                               data={"record": r.data,
-                                     "identifier": identifier,
-                                     "conf": conf})
-            return jsonify(resp.dictify())
+            return jsonify(
+                APIResponse("success",
+                            data={'record': r.data,
+                                  'identifier': identifier}).dictify()
+            )
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+    def delete(self, identifier, key):
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('conf', type=str)
+            args = parser.parse_args()
+            r = retrieve_record(identifier)
+            del r[key]
+            if args['conf']:
+                validator = retrieve_validator(args['conf'])
+                validity = validator.validate(r)
+                if not validity[0]:
+                    return jsonify(
+                        APIResponse("fail", errors=validity[1]).dictify()
+                    )
+            write_record(r, identifier)
+            return jsonify(
+                APIResponse("success",
+                            data={'record': r.data,
+                                  'identifier': identifier}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
 
-class Validate(Resource):
+class ValidationRoot(Resource):
     def post(self):
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str)
-            parser.add_argument('conf', type=str, required=True)
+            parser.add_argument('record_identifier', type=str, required=True)
+            parser.add_argument('conf_identifier', type=str, required=True)
             args = parser.parse_args(strict=True)
 
-            conf = args['conf']
-            if not only_alphanumeric(conf):
-                raise ValueError("Identifiers may only be alpha-numeric")
-            identifier = args['identifier']
-            if not only_alphanumeric(identifier):
-                raise ValueError("Identifiers may only be alpha-numeric")
-
-            v = build_validator(retrieve_conf(conf))
-            r = retrieve_record(identifier)
+            v = retrieve_validator(args['conf_identifier'])
+            r = retrieve_record(args['record_identifier'])
             validity = v.validate(r)
             resp = APIResponse("success",
                                data={"is_valid": validity[0],
                                      "validation_errors": validity[1],
-                                     "identifier": identifier,
-                                     "conf": conf,
+                                     "identifier": args['record_identifier'],
+                                     "conf": args['conf_identifier'],
                                      "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(e)])
+                               errors=[str(type(e)) + ":" + str(e)])
             return jsonify(resp.dictify())
 
 
-class RetrieveValue(Resource):
+class ConfsRoot(Resource):
+    def get(self):
+        # list all confs
+        pass
+
+    def put(self):
+        # bulk conf uplaod?
+        pass
+
     def post(self):
-        try:
-            parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str)
-            parser.add_argument('key', type=str)
-            args = parser.parse_args(strict=True)
+        # new conf
+        pass
 
-            if not only_alphanumeric(args['identifier']):
-                raise ValueError("Identifiers may only be alpha-numeric")
+    def delete(self):
+        # delete all the confs
+        pass
 
-            r = retrieve_record(args['identifier'])
-            try:
-                val = r[args["key"]]
-            except KeyError:
-                resp = APIResponse("fail",
-                                   errors=['Key Error: {}'.format(args["key"])])
-                return jsonify(resp.dictify())
-            resp = APIResponse("success",
-                               data={"value": val,
-                                     "identifier": args['identifier'],
-                                     "key": args["key"]})
-            return jsonify(resp.dictify())
-        except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(e)])
-            return jsonify(resp.dictify())
 
+class ConfRoot(Resource):
+    def get(self, identifier):
+        # return a specific conf
+        pass
+
+    def put(self, identifier):
+        # overwrite a whole conf
+        pass
+
+    def post(self, identifier):
+        # set validation for a key that doesn't exist
+        pass
 
 class AssociateRecord(Resource):
     def post(self):
@@ -442,7 +549,7 @@ class AssociateRecord(Resource):
 
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(e)])
+                               errors=[str(type(e)) + ":" + str(e)])
             return jsonify(resp.dictify())
 
 
@@ -472,7 +579,7 @@ class DisassociateRecord(Resource):
 
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(e)])
+                               errors=[str(type(e)) + ":" + str(e)])
             return jsonify(resp.dictify())
 
 
@@ -490,7 +597,7 @@ class ListCategory(Resource):
 
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(e)])
+                               errors=[str(type(e)) + ":" + str(e)])
             return jsonify(resp.dictify())
 
 
@@ -511,20 +618,14 @@ class GetCategories(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(e)])
+                               errors=[str(type(e))+ ":" + str(e)])
             return jsonify(resp.dictify())
 
 
 app = Flask(__name__)
 api = Api(app)
 api.add_resource(Root, '/')
-api.add_resource(NewRecord, '/newRecord')
-api.add_resource(GetRecord, '/getRecord/<string:identifier>')
-api.add_resource(SetValue, '/setValue')
-api.add_resource(RemoveValue, '/delValue')
-api.add_resource(Validate, '/validate')
-api.add_resource(RetrieveValue, '/getValue')
-api.add_resource(AssociateRecord, '/associateRecord')
-api.add_resource(DisassociateRecord, '/disassociateRecord')
-api.add_resource(ListCategory, '/listCategory/<string:category>')
-api.add_resource(GetCategories, '/getCategories/<string:identifier>')
+api.add_resource(RecordsRoot, '/record')
+api.add_resource(RecordRoot, '/record/<string:identifier>')
+api.add_resource(EntryRoot, '/record/<string:identifier>/<string:key>')
+api.add_resource(ValidationRoot, '/validate')
