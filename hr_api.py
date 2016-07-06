@@ -76,6 +76,12 @@ def delete_conf(identifier):
     rec_path = join(_STORAGE_ROOT, 'confs', identifier+".csv")
     remove(rec_path)
 
+def delete_category(identifier):
+    identifier = secure_filename(identifier)
+    if not only_alphanumeric(identifier):
+        raise ValueError("Categories must be alphanumeric.")
+    rec_path = join(_STORAGE_ROOT, 'org', identifier)
+    remove(rec_path)
 
 def build_validator(conf):
     return RecordValidator(conf)
@@ -118,6 +124,20 @@ def get_existing_record_identifiers():
         )) if x.is_file())
 
 
+def get_existing_conf_identifiers():
+    return (x.name for x in scandir(
+        join(
+            _STORAGE_ROOT, 'confs'
+        )) if x.is_file())
+
+
+def get_existing_categories():
+    return (x.name for x in scandir(
+        join(
+            _STORAGE_ROOT, 'org'
+        )) if x.is_file())
+
+
 def parse_value(value):
     if value is "True":
         return True
@@ -153,11 +173,14 @@ class RecordCategory(object):
         for x in record_ids:
             self.add_record(x)
 
+    def del_records(self):
+        self._records = []
+
     def add_record(self, record_id):
         if record_id in get_existing_record_identifiers():
             self._records.append(record_id)
         else:
-            raise ValueError("That identifier doesn't exist.")
+            raise ValueError("That identifier ({}) doesn't exist.".format(record_id))
 
     def remove_record(self, record_id, whiff_is_error=True):
         atleast_one = False
@@ -182,7 +205,7 @@ class RecordCategory(object):
                 f.write(x+'\n')
 
     title = property(get_title, set_title)
-    records = property(get_records, set_records)
+    records = property(get_records, set_records, del_records)
 
 
 class APIResponse(object):
@@ -313,10 +336,6 @@ class RecordsRoot(Resource):
             parser.add_argument('conf', type=str)
             args = parser.parse_args()
             identifier = uuid1().hex
-            if not only_alphanumeric(identifier):
-                raise ValueError("Identifiers may only be alpha-numeric. " +
-                                 "This one should always be and apparently " +
-                                 "isn't. My bad.")
             r = HierarchicalRecord()
             if args['record']:
                 r.data = args['record']
@@ -353,8 +372,6 @@ class RecordRoot(Resource):
     def get(self, identifier):
         # Get the whole record
         try:
-            if not only_alphanumeric(identifier):
-                raise ValueError("Identifiers may only be alpha-numeric")
             r = retrieve_record(identifier)
             resp = APIResponse("success",
                                data={"record": r.data,
@@ -399,10 +416,6 @@ class RecordRoot(Resource):
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
-
-#     Should I add this so that you can request a specific identifier?
-#     def post(self, identifier):
-#         pass
 
 
 class EntryRoot(Resource):
@@ -492,134 +505,185 @@ class ValidationRoot(Resource):
 class ConfsRoot(Resource):
     def get(self):
         # list all confs
-        pass
+        try:
+            r = APIResponse(
+                "success",
+                data={"records": [x for x in get_existing_conf_identifiers()]}
+            )
+            return jsonify(r.dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
-    def put(self):
-        # bulk conf uplaod?
-        pass
+#    def put(self):
+#        # bulk conf uplaod?
+#        pass
 
-    def post(self):
-        # new conf
-        pass
+#    def post(self):
+#        # New Conf
+#        pass
 
-    def delete(self):
-        # delete all the confs
-        pass
+#    def delete(self):
+#        # delete all the confs
+#        pass
 
 
 class ConfRoot(Resource):
     def get(self, identifier):
         # return a specific conf
-        pass
+        try:
+            c = retrieve_conf(identifier)
+            return jsonify(APIResponse("success", data={"identifier": identifier,"conf": c.data}).dictify())
 
-    def put(self, identifier):
-        # overwrite a whole conf
-        pass
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
-    def post(self, identifier):
-        # set validation for a key that doesn't exist
-        pass
+#    def put(self, identifier):
+#        # overwrite a whole conf
+#        pass
 
-class AssociateRecord(Resource):
+#    def post(self, identifier):
+#        # set validation for a key that doesn't exist
+#        pass
+
+#    def delete(self, identifier):
+#        # Delete this conf
+#        pass
+
+
+class CategoriesRoot(Resource):
+    def get(self):
+        # list all categories
+        try:
+            r = APIResponse(
+                "success",
+                data={"categories": [x for x in get_existing_categories()]}
+            )
+            return jsonify(r.dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+#    def put(self):
+#        # overwrite all categories
+#        pass
+
     def post(self):
+        # Add a category
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str)
-            parser.add_argument('category', type=str)
+            parser.add_argument('conf_id', type=str, required=True)
+            parser.add_argument('records', type=list)
+            args = parser.parse_args()
 
-            args = parser.parse_args(strict=True)
+            if not only_alphanumeric(args['conf_id']):
+                raise ValueError("Conf identifiers can only be alphanumeric.")
 
-            if not only_alphanumeric(args['identifier']):
-                raise ValueError("Identifiers may only be alpha-numeric.")
+            # This line shouldn't do anything, but why not be paranoid about it
+            args['conf_id'] = secure_filename(args['conf_id'])
 
-            if not only_alphanumeric(args['category']):
-                raise ValueError("Categories may only be alpha-numeric.")
+            if args['conf_id'] in get_existing_categories():
+                raise ValueError("That conf id already exists, " +
+                                 "please specify a different identifier.")
 
-            if args['identifier'] not in get_existing_record_identifiers():
-                raise ValueError("That identifier doesn't exist.")
-
-            category = get_category(args["category"])
-            category.add_record(args['identifier'])
-            category.serialize()
-
-            resp = APIResponse("success",
-                               data={"identifier": args['identifier'],
-                                     "category": args['category']})
-            return jsonify(resp.dictify())
+            c = get_category(args['conf_id'])
+            if args['records']:
+                for x in args['records']:
+                    c.add_record(x)
+            c.serialize()
 
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(type(e)) + ":" + str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
+#    def delete(self):
+#        # delete all categories
+#        pass
 
-class DisassociateRecord(Resource):
-    def post(self):
+class CategoryRoot(Resource):
+    def get(self, cat_identifier):
+        # list all records in this category
+        try:
+            c = get_category(cat_identifier)
+            return jsonify(
+                APIResponse("success", data={"category": cat_identifier,
+                                             "records": c.records}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+    def put(self, cat_identifier):
+        # replace all records in this category
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('identifier', type=str)
-            parser.add_argument('category', type=str)
-
-            args = parser.parse_args(strict=True)
-
-            if not only_alphanumeric(args['identifier']):
-                raise ValueError("Identifiers may only be alpha-numeric.")
-
-            if not only_alphanumeric(args['category']):
-                raise ValueError("Categories may only be alpha-numeric.")
-
-            category = get_category(args["category"])
-            category.remove_record(args['identifier'])
-            category.serialize()
-
-            resp = APIResponse("success",
-                               data={"identifier": args['identifier'],
-                                     "category": args['category']})
-            return jsonify(resp.dictify())
-
+            parser.add_argument('records', type=list, required=True)
+            args = parser.parse_args()
+            c = get_category(cat_identifier)
+            del c.records
+            for x in args['records']:
+                c.add_record(x)
+            c.serialize()
+            return jsonify(
+                APIResponse("success", data={"category": cat_identifier,
+                                             "records": c.records}).dictify()
+            )
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(type(e)) + ":" + str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
-
-class ListCategory(Resource):
-    def get(self, category):
+    def post(self, cat_identifier):
+        # Add a record to this category
         try:
-            if not only_alphanumeric(category):
-                raise ValueError("Categories have to be alpha-numeric.")
+            parser = reqparse.RequestParser()
+            parser.add_argument('record_identifier', type=str, required=True)
+            args = parser.parse_args()
 
-            c = get_category(category)
-            data = {"category": category,
-                    "records": c.records}
-            resp = APIResponse("success", data=data)
-            return jsonify(resp.dictify())
+            c = get_category(cat_identifier)
+            c.add_record(args['record_identifier'])
+            c.serialize()
 
+            return jsonify(
+                APIResponse("success", data={"category": cat_identifier,
+                                             "records": c.records}).dictify()
+            )
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(type(e)) + ":" + str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
-
-class GetCategories(Resource):
-    def get(self, identifier):
+    def delete(self, cat_identifier):
+        # delete this category
         try:
-            if not only_alphanumeric(identifier):
-                raise ValueError("Identifiers must be alphanumeric.")
-            exists_in = None
-            categories = get_categories()
-            for c in categories:
-                if identifier in c.records:
-                    if exists_in is None:
-                        exists_in = []
-                    exists_in.append(c.title)
-            resp = APIResponse("success", data={"identifier": identifier,
-                                                "categories": exists_in})
-            return jsonify(resp.dictify())
+            delete_category(cat_identifier)
+            return jsonify(
+                APIResponse("success").dictify()
+            )
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(type(e))+ ":" + str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+class CategoryMember(Resource):
+    def get(self, cat_identifier, rec_identifier):
+        # Query the category to see if an identifier is in it
+        try:
+            c = get_category(cat_identifier)
+            if rec_identifier in c.records:
+                return jsonify(
+                    APIResponse("success", data={"category": cat_identifier,
+                                                 "records": c.records,
+                                                 "record_present": True}).dictify()
+                )
+            else:
+                raise ValueError("Record Identifier:{} not present in Category:{}".format(rec_identifier, cat_identifier))
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+
+
+    def delete(self, cat_identifier, rec_identifier):
+        #remove this member from the category
+        try:
+            c = get_category(cat_identifier)
+            c.records = [x for x in c.records if x != rec_identifier]
+            c.serialize()
+            return jsonify(
+                APIResponse("success", data={"category": cat_identifier,
+                                             "records": c.records}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
 
 app = Flask(__name__)
@@ -629,3 +693,8 @@ api.add_resource(RecordsRoot, '/record')
 api.add_resource(RecordRoot, '/record/<string:identifier>')
 api.add_resource(EntryRoot, '/record/<string:identifier>/<string:key>')
 api.add_resource(ValidationRoot, '/validate')
+api.add_resource(ConfsRoot, '/conf')
+api.add_resource(ConfRoot, '/conf/<string:identifier>')
+api.add_resource(CategoriesRoot, '/category')
+api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
+api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')
