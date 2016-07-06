@@ -416,16 +416,18 @@ class RecordRoot(Resource):
 
 class EntryRoot(Resource):
     def get(self, identifier, key):
+        # get a value
         try:
             r = retrieve_record(identifier)
             v = r[key]
             return jsonify(
-                APIResponse("success", data={'value': v}).dictify()
+                APIResponse("success", data={'record_identifier': identifier, 'key': key, 'value': v}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
     def post(self, identifier, key):
+        # Set a value
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('value', required=True)
@@ -451,6 +453,7 @@ class EntryRoot(Resource):
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
     def delete(self, identifier, key):
+        # delete a value
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('conf', type=str)
@@ -504,7 +507,7 @@ class ConfsRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"records": [x for x in get_existing_conf_identifiers()]}
+                data={"confs": [x for x in get_existing_conf_identifiers()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
@@ -585,6 +588,10 @@ class CategoriesRoot(Resource):
                 for x in args['records']:
                     c.add_record(x)
             c.serialize()
+            return jsonify(
+                APIResponse("success", data={"category": args['conf_id'],
+                                             "records": c.records}).dictify()
+            )
 
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
@@ -646,9 +653,11 @@ class CategoryRoot(Resource):
         # delete this category
         try:
             delete_category(cat_identifier)
-            return jsonify(
-                APIResponse("success").dictify()
+            r = APIResponse(
+                "success",
+                data={"categories": [x for x in get_existing_categories()]}
             )
+            return jsonify(r.dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
