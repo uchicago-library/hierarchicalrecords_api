@@ -20,6 +20,8 @@ _STORAGE_ROOT = '/Users/balsamo/test_hr_api_storage'
 
 # Most of these are abstracted because they should be hooked
 # to some kind of database model in the future
+# Categories currently handle their own serialization, which I need to split out
+# into the helper functions for the future. These are marked with # TODO.
 
 
 def only_alphanumeric(x):
@@ -69,6 +71,11 @@ def retrieve_conf(conf_str):
     return c
 
 
+#TODO
+def write_conf(conf_id):
+    pass
+
+
 def delete_conf(identifier):
     identifier = secure_filename(identifier)
     if not only_alphanumeric(identifier):
@@ -76,12 +83,24 @@ def delete_conf(identifier):
     rec_path = join(_STORAGE_ROOT, 'confs', identifier+".csv")
     remove(rec_path)
 
+
+# TODO
+def retrieve_category(identifier):
+    pass
+
+
+# TODO
+def write_category(identifier):
+    pass
+
+
 def delete_category(identifier):
     identifier = secure_filename(identifier)
     if not only_alphanumeric(identifier):
         raise ValueError("Categories must be alphanumeric.")
     rec_path = join(_STORAGE_ROOT, 'org', identifier)
     remove(rec_path)
+
 
 def build_validator(conf):
     return RecordValidator(conf)
@@ -264,29 +283,6 @@ class APIResponse(object):
     errors = property(get_errors, set_errors)
     data = property(get_data, set_data)
     status = property(get_status, set_status)
-
-
-class Root(Resource):
-    def get(self):
-        docs = """
-        All this information is out of date - but I'm leaving it in place
-        so that in the future I remember to update it.
-
-        #############
-
-        This is the root of the HierarchicalRecords API Application.
-        It has the following endpoints:
-
-        GET
-            - /getRecord
-
-        POST
-            - /newRecord
-            - /setValue
-            - /delValue
-            - /validate
-        """
-        return docs
 
 
 class RecordsRoot(Resource):
@@ -532,7 +528,7 @@ class ConfRoot(Resource):
         # return a specific conf
         try:
             c = retrieve_conf(identifier)
-            return jsonify(APIResponse("success", data={"identifier": identifier,"conf": c.data}).dictify())
+            return jsonify(APIResponse("success", data={"identifier": identifier, "conf": c.data}).dictify())
 
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
@@ -597,6 +593,7 @@ class CategoriesRoot(Resource):
 #        # delete all categories
 #        pass
 
+
 class CategoryRoot(Resource):
     def get(self, cat_identifier):
         # list all records in this category
@@ -655,6 +652,7 @@ class CategoryRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
+
 class CategoryMember(Resource):
     def get(self, cat_identifier, rec_identifier):
         # Query the category to see if an identifier is in it
@@ -671,9 +669,8 @@ class CategoryMember(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
 
-
     def delete(self, cat_identifier, rec_identifier):
-        #remove this member from the category
+        # remove this member from the category
         try:
             c = get_category(cat_identifier)
             c.records = [x for x in c.records if x != rec_identifier]
@@ -688,7 +685,6 @@ class CategoryMember(Resource):
 
 app = Flask(__name__)
 api = Api(app)
-api.add_resource(Root, '/')
 api.add_resource(RecordsRoot, '/record')
 api.add_resource(RecordRoot, '/record/<string:identifier>')
 api.add_resource(EntryRoot, '/record/<string:identifier>/<string:key>')
