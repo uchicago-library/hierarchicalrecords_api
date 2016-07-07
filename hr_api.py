@@ -22,6 +22,9 @@ _STORAGE_ROOT = '/Users/balsamo/test_hr_api_storage'
 # to some kind of database model in the future
 # Categories currently handle their own serialization, which I need to split out
 # into the helper functions for the future. These are marked with # TODO.
+#
+# Note to future self: Probably make these base functions delegators to
+# implementation specific functions
 
 
 def only_alphanumeric(x):
@@ -71,7 +74,7 @@ def retrieve_conf(conf_str):
     return c
 
 
-#TODO
+# TODO
 def write_conf(conf_id):
     pass
 
@@ -295,7 +298,7 @@ class RecordsRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 # This function appears to be tricky because of nesting data structures in an
 # iterable while still utilizing the RequestParser class. I'll have a look at it
@@ -320,7 +323,7 @@ class RecordsRoot(Resource):
 #            )
 #        except Exception as e:
 #            resp = APIResponse("fail",
-#                               errors=[str(type(e)) + ":" + str(e)]
+#                               errors=[str(type(e)) + ": " + str(e)]
 #                               )
 #            return jsonify(resp.dictify())
 
@@ -329,14 +332,14 @@ class RecordsRoot(Resource):
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('record', type=dict)
-            parser.add_argument('conf', type=str)
+            parser.add_argument('conf_identifier', type=str)
             args = parser.parse_args()
             identifier = uuid1().hex
             r = HierarchicalRecord()
             if args['record']:
                 r.data = args['record']
-            if args['conf']:
-                validator = retrieve_validator(args['conf'])
+            if args['conf_identifier']:
+                validator = retrieve_validator(args['conf_identifier'])
                 validity = validator.validate(r)
                 if not validity[0]:
                     return jsonify(
@@ -348,7 +351,7 @@ class RecordsRoot(Resource):
                                      "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self):
         try:
@@ -361,7 +364,7 @@ class RecordsRoot(Resource):
                             data={"deleted_identifiers": deleted}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class RecordRoot(Resource):
@@ -374,19 +377,19 @@ class RecordRoot(Resource):
                                      "identifier": identifier})
             return jsonify(resp.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def put(self, identifier):
         # overwrite a whole record
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('record', type=dict, required=True)
-            parser.add_argument('conf', type=str)
+            parser.add_argument('conf_identifier', type=str)
             args = parser.parse_args()
             record = retrieve_record(identifier)
             record.data = args.record
-            if args['conf']:
-                validator = retrieve_validator(args['conf'])
+            if args['conf_identifier']:
+                validator = retrieve_validator(args['conf_identifier'])
                 validity = validator.validate(record)
                 if not validity[0]:
                     return jsonify(
@@ -399,19 +402,20 @@ class RecordRoot(Resource):
                                   'record': record.data}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self, identifier):
         # delete a record
         try:
             delete_record(identifier)
-            return jsonify(
-                APIResponse(
-                    "success", data={'identifier': identifier}
-                ).dictify()
+            r = APIResponse(
+                "success",
+                data={"records": [x for x in get_existing_record_identifiers()],
+                      "deleted_identifier": identifier}
             )
+            return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class EntryRoot(Resource):
@@ -424,20 +428,20 @@ class EntryRoot(Resource):
                 APIResponse("success", data={'record_identifier': identifier, 'key': key, 'value': v}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def post(self, identifier, key):
         # Set a value
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('value', required=True)
-            parser.add_argument('conf', type=str)
+            parser.add_argument('conf_identifier', type=str)
             args = parser.parse_args()
             v = parse_value(args['value'])
             r = retrieve_record(identifier)
             r[key] = v
-            if args['conf']:
-                validator = retrieve_validator(args['conf'])
+            if args['conf_identifier']:
+                validator = retrieve_validator(args['conf_identifier'])
                 validity = validator.validate(r)
                 if not validity[0]:
                     return jsonify(
@@ -450,18 +454,18 @@ class EntryRoot(Resource):
                                   'identifier': identifier}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self, identifier, key):
         # delete a value
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('conf', type=str)
+            parser.add_argument('conf_identifier', type=str)
             args = parser.parse_args()
             r = retrieve_record(identifier)
             del r[key]
-            if args['conf']:
-                validator = retrieve_validator(args['conf'])
+            if args['conf_identifier']:
+                validator = retrieve_validator(args['conf_identifier'])
                 validity = validator.validate(r)
                 if not validity[0]:
                     return jsonify(
@@ -474,7 +478,7 @@ class EntryRoot(Resource):
                                   'identifier': identifier}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class ValidationRoot(Resource):
@@ -497,7 +501,7 @@ class ValidationRoot(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             resp = APIResponse("fail",
-                               errors=[str(type(e)) + ":" + str(e)])
+                               errors=[str(type(e)) + ": " + str(e)])
             return jsonify(resp.dictify())
 
 
@@ -511,7 +515,7 @@ class ConfsRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 #    def put(self):
 #        # bulk conf uplaod?
@@ -534,7 +538,7 @@ class ConfRoot(Resource):
             return jsonify(APIResponse("success", data={"identifier": identifier, "conf": c.data}).dictify())
 
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 #    def put(self, identifier):
 #        # overwrite a whole conf
@@ -559,7 +563,7 @@ class CategoriesRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 #    def put(self):
 #        # overwrite all categories
@@ -569,32 +573,28 @@ class CategoriesRoot(Resource):
         # Add a category
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('conf_id', type=str, required=True)
-            parser.add_argument('records', type=list)
+            parser.add_argument('category_identifier', type=str, required=True)
             args = parser.parse_args()
 
-            if not only_alphanumeric(args['conf_id']):
-                raise ValueError("Conf identifiers can only be alphanumeric.")
+            if not only_alphanumeric(args['category_identifier']):
+                raise ValueError("Category identifiers can only be alphanumeric.")
 
             # This line shouldn't do anything, but why not be paranoid about it
-            args['conf_id'] = secure_filename(args['conf_id'])
+            args['category_identifier'] = secure_filename(args['category_identifier'])
 
-            if args['conf_id'] in get_existing_categories():
-                raise ValueError("That conf id already exists, " +
+            if args['category_identifier'] in get_existing_categories():
+                raise ValueError("That cat id already exists, " +
                                  "please specify a different identifier.")
 
-            c = get_category(args['conf_id'])
-            if args['records']:
-                for x in args['records']:
-                    c.add_record(x)
+            c = get_category(args['category_identifier'])
             c.serialize()
             return jsonify(
-                APIResponse("success", data={"category": args['conf_id'],
+                APIResponse("success", data={"category": args['category_identifier'],
                                              "records": c.records}).dictify()
             )
 
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 #    def delete(self):
 #        # delete all categories
@@ -611,25 +611,26 @@ class CategoryRoot(Resource):
                                              "records": c.records}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-    def put(self, cat_identifier):
-        # replace all records in this category
-        try:
-            parser = reqparse.RequestParser()
-            parser.add_argument('records', type=list, required=True)
-            args = parser.parse_args()
-            c = get_category(cat_identifier)
-            del c.records
-            for x in args['records']:
-                c.add_record(x)
-            c.serialize()
-            return jsonify(
-                APIResponse("success", data={"category": cat_identifier,
-                                             "records": c.records}).dictify()
-            )
-        except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+#    def put(self, cat_identifier):
+#        # replace all records in this category
+#        try:
+#            parser = reqparse.RequestParser()
+#            parser.add_argument('records', type=list, required=True)
+#            args = parser.parse_args()
+#            print(args['records'])
+#            c = get_category(cat_identifier)
+#            del c.records
+#            for x in args['records']:
+#                c.add_record(x)
+#            c.serialize()
+#            return jsonify(
+#                APIResponse("success", data={"category": cat_identifier,
+#                                             "records": c.records}).dictify()
+#            )
+#        except Exception as e:
+#            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def post(self, cat_identifier):
         # Add a record to this category
@@ -647,7 +648,7 @@ class CategoryRoot(Resource):
                                              "records": c.records}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self, cat_identifier):
         # delete this category
@@ -659,7 +660,7 @@ class CategoryRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class CategoryMember(Resource):
@@ -676,7 +677,7 @@ class CategoryMember(Resource):
             else:
                 raise ValueError("Record Identifier:{} not present in Category:{}".format(rec_identifier, cat_identifier))
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self, cat_identifier, rec_identifier):
         # remove this member from the category
@@ -689,7 +690,7 @@ class CategoryMember(Resource):
                                              "records": c.records}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ":" + str(e)]).dictify())
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 app = Flask(__name__)
