@@ -15,13 +15,13 @@ from hierarchicalrecord.recordvalidator import RecordValidator
 # Globals
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
 _NUMERIC_PATTERN = regex_compile("^[0-9]+$")
+
+# Options that should probably be a config or something
 _STORAGE_ROOT = '/Users/balsamo/test_hr_api_storage'
 
 
 # Most of these are abstracted because they should be hooked
 # to some kind of database model in the future
-# Categories currently handle their own serialization, which I need to split out
-# into the helper functions for the future. These are marked with # TODO.
 #
 # Note to future self: Probably make these base functions delegators to
 # implementation specific functions
@@ -74,9 +74,13 @@ def retrieve_conf(conf_str):
     return c
 
 
-# TODO
 def write_conf(conf_id):
-    pass
+    conf_id = secure_filename(conf_id)
+    if not only_alphanumeric(conf_id):
+        raise ValueError("Conf identifiers must be alphanumeric.")
+    c = retrieve_conf(conf_id)
+    path = join(_STORAGE_ROOT, 'confs', conf_id+".csv")
+    c.to_csv(path)
 
 
 def delete_conf(identifier):
@@ -87,14 +91,31 @@ def delete_conf(identifier):
     remove(rec_path)
 
 
-# TODO
-def retrieve_category(identifier):
-    pass
+def retrieve_category(category):
+    category = secure_filename(category)
+    if not only_alphanumeric(category):
+        raise ValueError("Category identifiers must be alphanumeric.")
+    c = RecordCategory(category)
+    p = join(_STORAGE_ROOT, 'org', category)
+    try:
+        with open(p, 'r') as f:
+            for line in f.readlines():
+                c.add_record(line.rstrip('\n'))
+    except OSError:
+        pass
+    return c
 
 
-# TODO
 def write_category(identifier):
-    pass
+    identifier = secure_filename(identifier)
+    if not only_alphanumeric(identifier):
+        raise ValueError("Categories must be alphanumeric.")
+    path = join(_STORAGE_ROOT, 'org', identifier)
+    c = retrieve_category(identifier)
+    recs = set(c.records)
+    with open(path, 'w') as f:
+        for x in recs:
+            f.write(x+'\n')
 
 
 def delete_category(identifier):
@@ -114,27 +135,12 @@ def retrieve_validator(conf_id):
     return build_validator(c)
 
 
-def get_category(category):
-    category = secure_filename(category)
-    if not only_alphanumeric(category):
-        raise ValueError("Category identifiers must be alphanumeric.")
-    c = RecordCategory(category)
-    p = join(_STORAGE_ROOT, 'org', category)
-    try:
-        with open(p, 'r') as f:
-            for line in f.readlines():
-                c.add_record(line.rstrip('\n'))
-    except OSError:
-        pass
-    return c
-
-
 def get_categories():
     r = []
     for x in scandir(join(_STORAGE_ROOT, 'org')):
         if not x.is_file():
             continue
-        c = get_category(x.name)
+        c = retrieve_category(x.name)
         r.append(c)
     return r
 
@@ -167,6 +173,8 @@ def parse_value(value):
         return False
     elif value is "{}":
         return {}
+    elif value is "[]":
+        return []
     elif _NUMERIC_PATTERN.match(value):
         return int(value)
     else:
@@ -214,17 +222,6 @@ class RecordCategory(object):
             raise ValueError(
                 "{} doesn't appear in the records list".format(record_id)
             )
-
-    def serialize(self):
-        # This next line shouldn't do anything,
-        # and if it does things will break, but
-        # security is security, I guess.
-        t = secure_filename(self.title)
-        outpath = join(_STORAGE_ROOT, 'org', t)
-        self.records = set(self.records)
-        with open(outpath, 'w') as f:
-            for x in self.records:
-                f.write(x+'\n')
 
     title = property(get_title, set_title)
     records = property(get_records, set_records, del_records)
@@ -300,33 +297,6 @@ class RecordsRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-# This function appears to be tricky because of nesting data structures in an
-# iterable while still utilizing the RequestParser class. I'll have a look at it
-# in the future.
-#
-#    def put(self):
-#        # Bulk upload?
-#        try:
-#            parser = reqparse.RequestParser()
-#            parser.add_argument('records', type=list)
-#            args = parser.parse_args()
-#            ids = []
-#            if args.records:
-#                for x in args.records:
-#                    hr = HierarchicalRecord()
-#                    hr.data = loads(x)
-#                    identifier = uuid1().hex
-#                    write_record(hr, identifier)
-#                    ids.append({"identifier": identifier, "record": hr.data})
-#            return jsonify(
-#                APIResponse("success", data={"identifiers": ids}).dictify()
-#            )
-#        except Exception as e:
-#            resp = APIResponse("fail",
-#                               errors=[str(type(e)) + ": " + str(e)]
-#                               )
-#            return jsonify(resp.dictify())
-
     def post(self):
         # New Record
         try:
@@ -352,20 +322,6 @@ class RecordsRoot(Resource):
             return jsonify(resp.dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
-
-# Should the nuclear option even be exposed here?
-#    def delete(self):
-#        try:
-#            deleted = []
-#            for x in get_existing_record_identifiers():
-#                delete_record(x)
-#                deleted.append(x)
-#            return jsonify(
-#                APIResponse("success",
-#                            data={"deleted_identifiers": deleted}).dictify()
-#            )
-#        except Exception as e:
-#            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class RecordRoot(Resource):
@@ -518,16 +474,9 @@ class ConfsRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-#    def put(self):
-#        # bulk conf uplaod?
-#        pass
-
+# TODO
 #    def post(self):
 #        # New Conf
-#        pass
-
-#    def delete(self):
-#        # delete all the confs
 #        pass
 
 
@@ -541,14 +490,17 @@ class ConfRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
+# TODO
 #    def put(self, identifier):
 #        # overwrite a whole conf
 #        pass
 
+# TODO
 #    def post(self, identifier):
 #        # set validation for a key that doesn't exist
 #        pass
 
+# TODO
 #    def delete(self, identifier):
 #        # Delete this conf
 #        pass
@@ -565,10 +517,6 @@ class CategoriesRoot(Resource):
             return jsonify(r.dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
-
-#    def put(self):
-#        # overwrite all categories
-#        pass
 
     def post(self):
         # Add a category
@@ -587,8 +535,8 @@ class CategoriesRoot(Resource):
                 raise ValueError("That cat id already exists, " +
                                  "please specify a different identifier.")
 
-            c = get_category(args['category_identifier'])
-            c.serialize()
+            c = retrieve_category(args['category_identifier'])
+            write_category(c)
             return jsonify(
                 APIResponse("success", data={"category_identifier": args['category_identifier'],
                                              "record_identifiers": c.records}).dictify()
@@ -597,41 +545,18 @@ class CategoriesRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-#    def delete(self):
-#        # delete all categories
-#        pass
-
 
 class CategoryRoot(Resource):
     def get(self, cat_identifier):
         # list all records in this category
         try:
-            c = get_category(cat_identifier)
+            c = retrieve_category(cat_identifier)
             return jsonify(
                 APIResponse("success", data={"category_identifier": cat_identifier,
                                              "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
-
-#    def put(self, cat_identifier):
-#        # replace all records in this category
-#        try:
-#            parser = reqparse.RequestParser()
-#            parser.add_argument('records', type=list, required=True)
-#            args = parser.parse_args()
-#            print(args['records'])
-#            c = get_category(cat_identifier)
-#            del c.records
-#            for x in args['records']:
-#                c.add_record(x)
-#            c.serialize()
-#            return jsonify(
-#                APIResponse("success", data={"category": cat_identifier,
-#                                             "records": c.records}).dictify()
-#            )
-#        except Exception as e:
-#            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def post(self, cat_identifier):
         # Add a record to this category
@@ -640,9 +565,9 @@ class CategoryRoot(Resource):
             parser.add_argument('record_identifier', type=str, required=True)
             args = parser.parse_args()
 
-            c = get_category(cat_identifier)
+            c = retrieve_category(cat_identifier)
             c.add_record(args['record_identifier'])
-            c.serialize()
+            write_category(c)
 
             return jsonify(
                 APIResponse("success", data={"category_identifier": cat_identifier,
@@ -668,7 +593,7 @@ class CategoryMember(Resource):
     def get(self, cat_identifier, rec_identifier):
         # Query the category to see if an identifier is in it
         try:
-            c = get_category(cat_identifier)
+            c = retrieve_category(cat_identifier)
             if rec_identifier in c.records:
                 return jsonify(
                     APIResponse("success", data={"category_identifier": cat_identifier,
@@ -683,9 +608,9 @@ class CategoryMember(Resource):
     def delete(self, cat_identifier, rec_identifier):
         # remove this member from the category
         try:
-            c = get_category(cat_identifier)
+            c = retrieve_category(cat_identifier)
             c.records = [x for x in c.records if x != rec_identifier]
-            c.serialize()
+            write_category(c)
             return jsonify(
                 APIResponse("success", data={"category_identifier": cat_identifier,
                                              "record_identifiers": c.records}).dictify()
@@ -695,13 +620,18 @@ class CategoryMember(Resource):
 
 
 app = Flask(__name__)
+
 api = Api(app)
+
 api.add_resource(RecordsRoot, '/record')
 api.add_resource(RecordRoot, '/record/<string:identifier>')
 api.add_resource(EntryRoot, '/record/<string:identifier>/<string:key>')
+
 api.add_resource(ValidationRoot, '/validate')
+
 api.add_resource(ConfsRoot, '/conf')
 api.add_resource(ConfRoot, '/conf/<string:identifier>')
+
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
 api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')
