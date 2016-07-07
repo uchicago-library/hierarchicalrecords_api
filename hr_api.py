@@ -480,7 +480,8 @@ class ConfsRoot(Resource):
             write_conf(c, new_conf_identifier)
             r = APIResponse(
                 "success",
-                data={"conf_identifier": new_conf_identifier}
+                data={"conf_identifier": new_conf_identifier,
+                      "conf": c.data}
             )
             return jsonify(r.dictify())
         except Exception as e:
@@ -551,6 +552,9 @@ class RuleRoot(Resource):
             return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+
+
+# Potential TODO: Endpoints for specific rule components
 
 
 class CategoriesRoot(Resource):
@@ -666,6 +670,7 @@ class CategoryMember(Resource):
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
+# Create our app, hook the API to it, and add our resources
 app = Flask(__name__)
 
 api = Api(app)
