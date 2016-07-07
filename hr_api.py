@@ -74,13 +74,12 @@ def retrieve_conf(conf_str):
     return c
 
 
-def write_conf(conf_id):
+def write_conf(conf, conf_id):
     conf_id = secure_filename(conf_id)
     if not only_alphanumeric(conf_id):
         raise ValueError("Conf identifiers must be alphanumeric.")
-    c = retrieve_conf(conf_id)
     path = join(_STORAGE_ROOT, 'confs', conf_id+".csv")
-    c.to_csv(path)
+    conf.to_csv(path)
 
 
 def delete_conf(identifier):
@@ -106,12 +105,11 @@ def retrieve_category(category):
     return c
 
 
-def write_category(identifier):
+def write_category(c, identifier):
     identifier = secure_filename(identifier)
     if not only_alphanumeric(identifier):
         raise ValueError("Categories must be alphanumeric.")
     path = join(_STORAGE_ROOT, 'org', identifier)
-    c = retrieve_category(identifier)
     recs = set(c.records)
     with open(path, 'w') as f:
         for x in recs:
@@ -474,10 +472,19 @@ class ConfsRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-# TODO
-#    def post(self):
-#        # New Conf
-#        pass
+    def post(self):
+        # New Conf
+        try:
+            new_conf_identifier = uuid1().hex
+            c = RecordConf()
+            write_conf(c, new_conf_identifier)
+            r = APIResponse(
+                "success",
+                data={"conf_identifier": new_conf_identifier}
+            )
+            return jsonify(r.dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class ConfRoot(Resource):
@@ -490,20 +497,60 @@ class ConfRoot(Resource):
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-# TODO
-#    def put(self, identifier):
-#        # overwrite a whole conf
-#        pass
+    def post(self, identifier):
+        # set validation rule
+        #
+        # TODO
+        # Currently no validation going on here - I should probably handle
+        # That business over in HR.RecordConf set_data or something.
+        # If someone sets an invalid dict as a rule it'll probably make
+        # make everything blow up.
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('rule', type=dict, required=True)
+            args = parser.parse_args()
+            c = retrieve_conf(identifier)
+            c.data.append(args['rule'])
+            write_conf(c, identifier)
+            return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-# TODO
-#    def post(self, identifier):
-#        # set validation for a key that doesn't exist
-#        pass
+    def delete(self, identifier):
+        # Delete this conf
+        try:
+            delete_conf(identifier)
+            r = APIResponse(
+                "success",
+                data={"conf_identifiers": [x for x in get_existing_conf_identifiers()],
+                      "deleted_conf_identifier": identifier}
+            )
+            return jsonify(r.dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-# TODO
-#    def delete(self, identifier):
-#        # Delete this conf
-#        pass
+
+class RuleRoot(Resource):
+    def get(self, identifier, field_name):
+        try:
+            c = retrieve_conf(identifier)
+            rules = [x for x in c.data if x['Field Name'] == field_name]
+            r = APIResponse(
+                "success",
+                data={"conf_identifier": identifier,
+                      "rules": rules}
+            )
+            return jsonify(r.dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+
+    def delete(self, identifier, field_name):
+        try:
+            c = retrieve_conf(identifier)
+            c.data = [x for x in c.data if x['Field Name'] != field_name]
+            return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class CategoriesRoot(Resource):
@@ -536,7 +583,7 @@ class CategoriesRoot(Resource):
                                  "please specify a different identifier.")
 
             c = retrieve_category(args['category_identifier'])
-            write_category(c)
+            write_category(c, args['category_identifier'])
             return jsonify(
                 APIResponse("success", data={"category_identifier": args['category_identifier'],
                                              "record_identifiers": c.records}).dictify()
@@ -567,7 +614,7 @@ class CategoryRoot(Resource):
 
             c = retrieve_category(cat_identifier)
             c.add_record(args['record_identifier'])
-            write_category(c)
+            write_category(c, cat_identifier)
 
             return jsonify(
                 APIResponse("success", data={"category_identifier": cat_identifier,
@@ -610,7 +657,7 @@ class CategoryMember(Resource):
         try:
             c = retrieve_category(cat_identifier)
             c.records = [x for x in c.records if x != rec_identifier]
-            write_category(c)
+            write_category(c, cat_identifier)
             return jsonify(
                 APIResponse("success", data={"category_identifier": cat_identifier,
                                              "record_identifiers": c.records}).dictify()
@@ -631,6 +678,7 @@ api.add_resource(ValidationRoot, '/validate')
 
 api.add_resource(ConfsRoot, '/conf')
 api.add_resource(ConfRoot, '/conf/<string:identifier>')
+api.add_resource(RuleRoot, '/conf/<string:identifier>/<string:field_name>')
 
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
