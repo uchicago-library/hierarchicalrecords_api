@@ -294,7 +294,7 @@ class RecordsRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"records": [x for x in get_existing_record_identifiers()]}
+                data={"record_identifiers": [x for x in get_existing_record_identifiers()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
@@ -347,24 +347,25 @@ class RecordsRoot(Resource):
                     )
             write_record(r, identifier)
             resp = APIResponse("success",
-                               data={"identifier": identifier,
+                               data={"record_identifier": identifier,
                                      "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-    def delete(self):
-        try:
-            deleted = []
-            for x in get_existing_record_identifiers():
-                delete_record(x)
-                deleted.append(x)
-            return jsonify(
-                APIResponse("success",
-                            data={"deleted_identifiers": deleted}).dictify()
-            )
-        except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+# Should the nuclear option even be exposed here?
+#    def delete(self):
+#        try:
+#            deleted = []
+#            for x in get_existing_record_identifiers():
+#                delete_record(x)
+#                deleted.append(x)
+#            return jsonify(
+#                APIResponse("success",
+#                            data={"deleted_identifiers": deleted}).dictify()
+#            )
+#        except Exception as e:
+#            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class RecordRoot(Resource):
@@ -374,7 +375,7 @@ class RecordRoot(Resource):
             r = retrieve_record(identifier)
             resp = APIResponse("success",
                                data={"record": r.data,
-                                     "identifier": identifier})
+                                     "record_identifier": identifier})
             return jsonify(resp.dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
@@ -398,7 +399,7 @@ class RecordRoot(Resource):
             write_record(record, identifier)
             return jsonify(
                 APIResponse("success",
-                            data={'identifier': identifier,
+                            data={'record_identifier': identifier,
                                   'record': record.data}).dictify()
             )
         except Exception as e:
@@ -451,7 +452,7 @@ class EntryRoot(Resource):
             return jsonify(
                 APIResponse("success",
                             data={'record': r.data,
-                                  'identifier': identifier}).dictify()
+                                  'record_identifier': identifier}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
@@ -475,7 +476,7 @@ class EntryRoot(Resource):
             return jsonify(
                 APIResponse("success",
                             data={'record': r.data,
-                                  'identifier': identifier}).dictify()
+                                  'record_identifier': identifier}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
@@ -495,8 +496,8 @@ class ValidationRoot(Resource):
             resp = APIResponse("success",
                                data={"is_valid": validity[0],
                                      "validation_errors": validity[1],
-                                     "identifier": args['record_identifier'],
-                                     "conf": args['conf_identifier'],
+                                     "record_identifier": args['record_identifier'],
+                                     "conf_identifier": args['conf_identifier'],
                                      "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
@@ -511,7 +512,7 @@ class ConfsRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"confs": [x for x in get_existing_conf_identifiers()]}
+                data={"conf_identifiers": [x for x in get_existing_conf_identifiers()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
@@ -535,7 +536,7 @@ class ConfRoot(Resource):
         # return a specific conf
         try:
             c = retrieve_conf(identifier)
-            return jsonify(APIResponse("success", data={"identifier": identifier, "conf": c.data}).dictify())
+            return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
 
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
@@ -559,7 +560,7 @@ class CategoriesRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"categories": [x for x in get_existing_categories()]}
+                data={"category_identifiers": [x for x in get_existing_categories()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
@@ -589,8 +590,8 @@ class CategoriesRoot(Resource):
             c = get_category(args['category_identifier'])
             c.serialize()
             return jsonify(
-                APIResponse("success", data={"category": args['category_identifier'],
-                                             "records": c.records}).dictify()
+                APIResponse("success", data={"category_identifier": args['category_identifier'],
+                                             "record_identifiers": c.records}).dictify()
             )
 
         except Exception as e:
@@ -607,8 +608,8 @@ class CategoryRoot(Resource):
         try:
             c = get_category(cat_identifier)
             return jsonify(
-                APIResponse("success", data={"category": cat_identifier,
-                                             "records": c.records}).dictify()
+                APIResponse("success", data={"category_identifier": cat_identifier,
+                                             "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
@@ -644,8 +645,8 @@ class CategoryRoot(Resource):
             c.serialize()
 
             return jsonify(
-                APIResponse("success", data={"category": cat_identifier,
-                                             "records": c.records}).dictify()
+                APIResponse("success", data={"category_identifier": cat_identifier,
+                                             "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
@@ -656,7 +657,7 @@ class CategoryRoot(Resource):
             delete_category(cat_identifier)
             r = APIResponse(
                 "success",
-                data={"categories": [x for x in get_existing_categories()]}
+                data={"category_identifiers": [x for x in get_existing_categories()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
@@ -670,8 +671,8 @@ class CategoryMember(Resource):
             c = get_category(cat_identifier)
             if rec_identifier in c.records:
                 return jsonify(
-                    APIResponse("success", data={"category": cat_identifier,
-                                                 "records": c.records,
+                    APIResponse("success", data={"category_identifier": cat_identifier,
+                                                 "record_identifiers": c.records,
                                                  "record_present": True}).dictify()
                 )
             else:
@@ -686,8 +687,8 @@ class CategoryMember(Resource):
             c.records = [x for x in c.records if x != rec_identifier]
             c.serialize()
             return jsonify(
-                APIResponse("success", data={"category": cat_identifier,
-                                             "records": c.records}).dictify()
+                APIResponse("success", data={"category_identifier": cat_identifier,
+                                             "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
