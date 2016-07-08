@@ -3,6 +3,13 @@
 In development
 
 ## Endpoints
+
+* Entries in the data column are expected to be either JSON keys if the request contains "Content-Type: application/json" in the header, or url-encoded onto the request to the endpoint.
+
+* Data values can either be required (r) or optional (o)
+
+* An "X" in a data field implies that the endpoint/method accepts no data.
+
 | End Point | HTTP Method | Action | Data | Response Data | Notes |
 |---------------------------------------------------------------|-------------|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------|
 | /record | GET | Retrieve a list of all record identifiers | X | {"record_identifiers":  \<list:identifiers\>} |  |
