@@ -754,17 +754,21 @@ app = Flask(__name__)
 
 api = Api(app)
 
+# Record manipulation endpoints
 api.add_resource(RecordsRoot, '/record')
 api.add_resource(RecordRoot, '/record/<string:identifier>')
 api.add_resource(EntryRoot, '/record/<string:identifier>/<string:key>')
 
+# Validation endpoint
 api.add_resource(ValidationRoot, '/validate')
 
+# Conf manipulation endpoints
 api.add_resource(ConfsRoot, '/conf')
 api.add_resource(ConfRoot, '/conf/<string:identifier>')
 api.add_resource(RulesRoot, '/conf/<string:identifier>/<string:rule_id>')
 api.add_resource(RuleComponentRoot, '/conf/<string:identifier>/<string:rule_id>/<string:component>')
 
+# Organization manipulation endpoints
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
 api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')

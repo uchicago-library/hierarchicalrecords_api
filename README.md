@@ -4,7 +4,7 @@ In development
 
 ## Endpoints
 | End Point | HTTP Method | Action | Data | Response Data | Notes |
-|-----------------------------------------------------------|-------------|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------|
+|---------------------------------------------------------------|-------------|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------|
 | /record | GET | Retrieve a list of all record identifiers | X | {"record_identifiers":  \<list:identifiers\>} |  |
 | /record | POST | Create a new record. Populate it's original data with the supplied if any | record (o): \<dict:record\>conf_identifier (o): \<str:conf_identifier\> | {"record_identifier": \<str:identifier\>, "record": \<dict:record\>} |  |
 | /record/\<string:identifier\> | GET | Retrieve a record | X | {"record": \<dict:record\>, "record_identifier": \<str:identifier\>} |  |
@@ -19,8 +19,11 @@ In development
 | /conf/\<string:identifier\> | GET | Get a specific conf | X | {"conf_identifier": \<str:conf_identifier\>, "conf": \<dict:conf data\>} |  |
 | /conf/\<string:identifier\> | POST | set a validation rule | rule (r): \<dict:rule_dict\> | {"conf_identifier": \<str:conf_identifier\>, "conf": \<dict:conf data\>} |  |
 | /conf/\<string:identifier\> | DELETE | delete a validation rule | X | {"conf_identifiers": \<list:conf_identifiers\>, "deleted_conf_identifier": \<str:deleted_identifier\>} |  |
-| /conf/\<string:identifier\>/\<string:field_name\> | GET | get a specific rule | X | {"conf_identifier": \<str:conf_identifier\>, "rules": \<list:rules_pertaining_to_fieldname\>} |  |
-| /conf/\<string:identifier\>/\<string:field_name\> | DELETE | delete a rule from a conf | X | {"conf_identifier": \<str:conf_identifier\>, "conf": \<dict:conf data\>} |  |
+| /conf/\<string:identifier\>/\<string:rule_id\> | GET | get a specific rule | X | {"conf_identifier": \<str:conf_identifier\>, "rule": \<str:rule_value\>} |  |
+| /conf/\<string:identifier\>/\<string:rule_id\> | DELETE | delete a rule from a conf | X | {"conf_identifier": \<str:conf_identifier\>, "conf": \<dict:conf data\>} |  |
+| /conf/\<string:identifier\>/\<string:rule_id\>/\<string:component\> | GET | Get a rule component | X | {“conf_identifier”: \<string:conf_identifier\>, “rule_id”: \<string:rule_id\>, “component”: \<string:component\>, “value”: \<str:value\>} |  |
+| /conf/\<string:identifier\>/\<string:rule_id\>/\<string:component\> | POST | Set a rule component | component_value (r) : \<str:component_value\> | {“conf_identifier”: \<string:conf_identifier\>, “rule_id”: \<string:rule_identifier\>, “component”: \<string:component\>, “value”: \<string:component_value\>} |  |
+| /conf/\<string:identifier\>/\<string:rule_id\>/\<string:component\> | DELETE | Delete a rule component | X | {“conf_identifier”: \<string:conf_identifier\>, “rule_id”: \<string:rule_identifier\>, “component”: \<string:component\>, “value”: \<string:component_value\>} |  |
 | /category | GET | Get a list of all categories | X | {"category_identifiers": \<list:category_identifiers\>} |  |
 | /category | POST | Create a new category | category_identifier (r): \<str:cat_identifier\> | {"category_identifier": \<str:category_identifier\>, "record_identifiers": \<list:category_records\>} |  |
 | /category/\<string:cat_identifier\> | GET | Get a list of all record identifiers in a specific category | X | {"category_identifier": \<str:category_identifier\>, "record_identifiers": \<list:category_records\>} |  |
