@@ -500,12 +500,6 @@ class ConfRoot(Resource):
 
     def post(self, identifier):
         # set validation rule
-        #
-        # TODO
-        # Currently no validation going on here - I should probably handle
-        # That business over in HR.RecordConf set_data or something.
-        # If someone sets an invalid dict as a rule it'll probably make
-        # make everything blow up.
         try:
             parser = reqparse.RequestParser()
             parser.add_argument('rule', type=dict, required=True)
@@ -531,30 +525,116 @@ class ConfRoot(Resource):
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
-class RuleRoot(Resource):
-    def get(self, identifier, field_name):
+class RulesRoot(Resource):
+    def get(self, identifier, rule_id):
+        # get a rule
         try:
             c = retrieve_conf(identifier)
-            rules = [x for x in c.data if x['Field Name'] == field_name]
+            found_one = False
+            for x in c.data:
+                if x['id'] == rule_id:
+                    rule = x
+                    found_one = True
+            if not found_one:
+                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
             r = APIResponse(
                 "success",
                 data={"conf_identifier": identifier,
-                      "rules": rules}
+                      "rule": rule}
             )
             return jsonify(r.dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
-    def delete(self, identifier, field_name):
+    def delete(self, identifier, rule_id):
+        # delete a rule
         try:
             c = retrieve_conf(identifier)
-            c.data = [x for x in c.data if x['Field Name'] != field_name]
+            c.data = [x for x in c.data if x['id'] != rule_id]
+            write_conf(c, identifier)
             return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
-# Potential TODO: Endpoints for specific rule components
+class RuleComponentRoot(Resource):
+    def get(self, identifier, rule_id, component):
+        # get a rule component
+        try:
+            c = retrieve_conf(identifier)
+            rule = None
+            for x in c.data:
+                if x['id'] == rule_id:
+                    rule = x
+            if rule is None:
+                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+            try:
+                value = x[component]
+            except KeyError:
+                raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+            return jsonify(
+                APIResponse("success", data={"conf_identifier": identifier,
+                                             "rule_id": rule_id,
+                                             "component": component,
+                                             "value": value}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+
+    def delete(self, identifier, rule_id, component):
+        # remove a rule component
+        try:
+            c = retrieve_conf(identifier)
+            rule = None
+            for x in c.data:
+                if x['id'] == rule_id:
+                    rule = x
+            if rule is None:
+                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+            try:
+                x[component] = ""
+                value = x[component]
+            except KeyError:
+                raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+            return jsonify(
+                APIResponse("success", data={"conf_identifier": identifier,
+                                             "rule_id": rule_id,
+                                             "component": component,
+                                             "value": value}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+        pass
+
+    def post(self, identifier, rule_id, component):
+        # Add a rule component to this rule
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('component_value', type=str, required=True)
+            args = parser.parse_args()
+
+            c = retrieve_conf(identifier)
+            rule = None
+            for x in c.data:
+                if x['id'] == rule_id:
+                    rule = x
+            if rule is None:
+                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+            try:
+                x[component] = args['component_value']
+                value = x[component]
+            except KeyError:
+                raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+            return jsonify(
+                APIResponse("success", data={"conf_identifier": identifier,
+                                             "rule_id": rule_id,
+                                             "component": component,
+                                             "value": value}).dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
 
 class CategoriesRoot(Resource):
@@ -619,7 +699,6 @@ class CategoryRoot(Resource):
             c = retrieve_category(cat_identifier)
             c.add_record(args['record_identifier'])
             write_category(c, cat_identifier)
-
             return jsonify(
                 APIResponse("success", data={"category_identifier": cat_identifier,
                                              "record_identifiers": c.records}).dictify()
@@ -652,7 +731,7 @@ class CategoryMember(Resource):
                                                  "record_present": True}).dictify()
                 )
             else:
-                raise ValueError("Record Identifier:{} not present in Category:{}".format(rec_identifier, cat_identifier))
+                raise ValueError("Record Identifier: {} not present in Category: {}".format(rec_identifier, cat_identifier))
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
@@ -683,7 +762,8 @@ api.add_resource(ValidationRoot, '/validate')
 
 api.add_resource(ConfsRoot, '/conf')
 api.add_resource(ConfRoot, '/conf/<string:identifier>')
-api.add_resource(RuleRoot, '/conf/<string:identifier>/<string:field_name>')
+api.add_resource(RulesRoot, '/conf/<string:identifier>/<string:rule_id>')
+api.add_resource(RuleComponentRoot, '/conf/<string:identifier>/<string:rule_id>/<string:component>')
 
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
