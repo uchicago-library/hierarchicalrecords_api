@@ -1,6 +1,6 @@
-from flask import Flask
-from flask import jsonify
+from flask import Flask, jsonify, request
 from flask_restful import Resource, Api, reqparse
+from flask_login import LoginManager, login_required
 from uuid import uuid1
 from os import scandir, remove
 from os.path import join
@@ -183,6 +183,16 @@ def parse_value(value):
         return value
 
 
+class User(object):
+    def __init__(self):
+        self.is_authenticated = True
+        self.is_active = True
+        self.is_anonymous = False
+
+    def get_id(self):
+        return "User"
+
+
 class RecordCategory(object):
     def __init__(self, title):
         self._title = None
@@ -230,6 +240,10 @@ class RecordCategory(object):
 
 
 class RecordsRoot(Resource):
+
+# Comment left in place in order for me to remember how to apply logins to stuff
+#    method_decorators = [login_required]
+
     def get(self):
         # List all records
         try:
@@ -698,6 +712,24 @@ class CategoryMember(Resource):
 
 # Create our app, hook the API to it, and add our resources
 app = Flask(__name__)
+
+login_manager = LoginManager()
+# Define the login manager for flask-login for authenticated endpoints
+@login_manager.request_loader
+def load_user(request):
+    # Try really hard to get the token out of where ever it could be
+    token = request.headers.get('Authorization')
+    if token is None:
+        token = request.args.get('token')
+    if token is None:
+        if request.get_json():
+            token = request.get_json().get('token')
+    if token is not None:
+        if token == "1234":
+            return User()
+    return None
+
+login_manager.init_app(app)
 
 api = Api(app)
 
