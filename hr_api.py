@@ -6,6 +6,8 @@ from os import scandir, remove
 from os.path import join
 from werkzeug.utils import secure_filename
 from re import compile as regex_compile
+from hashlib import sha256
+from itsdangerous import URLSafeTimedSerializer
 
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
@@ -15,6 +17,7 @@ from apiresponse import APIResponse
 
 
 # Globals
+_SECRET_KEY = "this is a secret"
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
 _NUMERIC_PATTERN = regex_compile("^[0-9]+$")
 
@@ -35,6 +38,14 @@ def only_alphanumeric(x):
     if _ALPHANUM_PATTERN.match(x):
         return True
     return False
+
+
+def retrieve_user_dict(identifier, password):
+    pass
+
+
+def write_user_dict(identifier, password):
+    pass
 
 
 def retrieve_record(identifier):
@@ -184,13 +195,57 @@ def parse_value(value):
 
 
 class User(object):
-    def __init__(self):
+    def __init__(self, id, password=None, token=None):
+        try:
+            user_dict = retrieve_user_dict(id)
+        except:
+            raise ValueError("Incorrect User ID")
+        self.id = id
+        self.password = user_dict['password']
+        if password:
+            if self.hash_password(password) != self.password:
+                raise ValueError("Incorrect password")
+        if token:
+            if token != user_dict['token']:
+                raise ValueError("Incorrect token")
         self.is_authenticated = True
         self.is_active = True
         self.is_anonymous = False
+        self.token = None
 
     def get_id(self):
-        return "User"
+        return self.id
+
+    def generate_token(self):
+        pass
+
+    def dictify(self):
+        r = {}
+        r['id'] = self.id
+        r['password'] = self.password
+        r['token'] = token
+        return r
+
+    def generate_token(self, expiration=600):
+        s = URLSafeTimedSerializer(_SECRET_KEY, expires_in=expiration)
+        x = s.dumps({"id":self.id})
+        return x
+
+    def validate_token(self, token):
+        s = URLSafeTimedSerializer(_SECRET_KEY)
+        try:
+            x = s.loads(token)
+            assert(x['id'] == self.id)
+        except:
+            return ValueError("Invalid token")
+
+    def hash_password(self, password):
+        self.password = sha256("{}{}".format(self.id, password).encode("utf-8")).hexdigest()
+
+    def verify_password(self, password):
+        if hash_password(password) == self.password:
+            return True
+        return False
 
 
 class RecordCategory(object):
