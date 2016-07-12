@@ -451,10 +451,11 @@ class ConfRoot(Resource):
             parser.add_argument('rule', type=dict, required=True)
             args = parser.parse_args()
             c = retrieve_conf(identifier)
-            c.data.append(args['rule'])
+            c.add_rule(args['rule'])
             write_conf(c, identifier)
             return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
         except Exception as e:
+            raise e
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self, identifier):
@@ -542,6 +543,7 @@ class RuleComponentRoot(Resource):
                 value = x[component]
             except KeyError:
                 raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+            write_conf(c, identifier)
             return jsonify(
                 APIResponse("success", data={"conf_identifier": identifier,
                                              "rule_id": rule_id,
@@ -571,14 +573,13 @@ class RuleComponentRoot(Resource):
                 value = x[component]
             except KeyError:
                 raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+            write_conf(c, identifier)
             return jsonify(
                 APIResponse("success", data={"conf_identifier": identifier,
                                              "rule_id": rule_id,
                                              "component": component,
                                              "value": value}).dictify()
             )
-        except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
         except Exception as e:
             return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
