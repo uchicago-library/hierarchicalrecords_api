@@ -7,7 +7,7 @@ from os.path import join
 from werkzeug.utils import secure_filename
 from re import compile as regex_compile
 from hashlib import sha256
-from itsdangerous import URLSafeTimedSerializer
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired
 
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
@@ -202,22 +202,20 @@ class User(object):
             raise ValueError("Incorrect User ID")
         self.id = id
         self.password = user_dict['password']
+        if not password or token:
+            raise ValueError("No authentication provided.")
         if password:
             if self.hash_password(password) != self.password:
                 raise ValueError("Incorrect password")
         if token:
-            if token != user_dict['token']:
+            if not self.validate_token(token):
                 raise ValueError("Incorrect token")
         self.is_authenticated = True
         self.is_active = True
         self.is_anonymous = False
-        self.token = None
 
     def get_id(self):
         return self.id
-
-    def generate_token(self):
-        pass
 
     def dictify(self):
         r = {}
@@ -226,18 +224,24 @@ class User(object):
         r['token'] = token
         return r
 
-    def generate_token(self, expiration=600):
-        s = URLSafeTimedSerializer(_SECRET_KEY, expires_in=expiration)
-        x = s.dumps({"id":self.id})
+    def generate_token(self):
+        s = URLSafeTimedSerializer(_SECRET_KEY)
+        x = s.dumps(sha256(self.id+self.password+_SECRET_KEY))
         return x
 
-    def validate_token(self, token):
+    def validate_token(self, token, max_age=None):
         s = URLSafeTimedSerializer(_SECRET_KEY)
+        x = None
         try:
-            x = s.loads(token)
-            assert(x['id'] == self.id)
-        except:
-            return ValueError("Invalid token")
+            if max_age is None:
+                x = s.loads(token)
+            else:
+                x = s.loads(token, max_age)
+        except SignatureExpired:
+            raise ValueError("Expired Token")
+        if x is not None:
+            if x != sha256(self.id+self.password+_SECRET_KEY):
+                return ValueError("Invalid token")
 
     def hash_password(self, password):
         self.password = sha256("{}{}".format(self.id, password).encode("utf-8")).hexdigest()
