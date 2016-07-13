@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, g, session
 from flask_restful import Resource, Api, reqparse
 from flask_login import LoginManager, login_required
 from uuid import uuid1
@@ -7,23 +7,25 @@ from os.path import join
 from werkzeug.utils import secure_filename
 from re import compile as regex_compile
 from hashlib import sha256
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired
+from itsdangerous import TimedJSONWebSignatureSerializer, SignatureExpired, \
+    BadSignature
+from json import loads as json_loads
+from json import dumps as json_dumps
 
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
+from config import Config
 from apiresponse import APIResponse
 
 
 # Globals
-_SECRET_KEY = "this is a secret"
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
 _NUMERIC_PATTERN = regex_compile("^[0-9]+$")
 
-# TODO
-# Options that should probably be a config or something
-_STORAGE_ROOT = '/Users/balsamo/test_hr_api_storage'
+_SECRET_KEY = Config.secret_key
+_STORAGE_ROOT = Config.storage_root
 
 
 # Most of these are abstracted because they should be hooked
@@ -40,12 +42,49 @@ def only_alphanumeric(x):
     return False
 
 
-def retrieve_user_dict(identifier, password):
-    pass
+def get_users():
+    r = []
+    for x in scandir(join(_STORAGE_ROOT, 'users')):
+        if not x.is_file():
+            continue
+        r.append(x.name)
+    return r
 
 
-def write_user_dict(identifier, password):
-    pass
+def retrieve_user_dict(identifier):
+    if identifier != secure_filename(identifier):
+        raise ValueError("Invalid User Identifier")
+    try:
+        r = None
+        with open(join(_STORAGE_ROOT, 'users', identifier), 'r') as f:
+            r = json_loads(f.read())
+            return r
+    except:
+        raise ValueError("Invalid User Identifier")
+
+
+def make_user_dict(identifier, password):
+    if identifier != secure_filename(identifier):
+        raise ValueError("Invalid id")
+    with open(join(_STORAGE_ROOT, 'users', identifier), 'w') as f:
+        f.write(
+            json_dumps(
+                {"id": identifier,
+                 "password": User.hash_password(identifier, password)}
+            )
+        )
+
+
+def write_user_dict(user, identifier):
+    if not isinstance(user, User):
+        raise ValueError("Must pass a user instance")
+    if identifier != secure_filename(identifier):
+        raise ValueError("Invalid user identifier")
+    try:
+        with open(join(_STORAGE_ROOT, 'users', identifier), 'w') as f:
+            f.write(json_dumps(user.dictify()))
+    except:
+        raise ValueError("Bad user identifier")
 
 
 def retrieve_record(identifier):
@@ -195,24 +234,36 @@ def parse_value(value):
 
 
 class User(object):
-    def __init__(self, id, password=None, token=None):
+    def __init__(self, id_or_token, password=None):
         try:
-            user_dict = retrieve_user_dict(id)
-        except:
-            raise ValueError("Incorrect User ID")
-        self.id = id
-        self.password = user_dict['password']
-        if not password or token:
-            raise ValueError("No authentication provided.")
-        if password:
-            if self.hash_password(password) != self.password:
-                raise ValueError("Incorrect password")
-        if token:
-            if not self.validate_token(token):
-                raise ValueError("Incorrect token")
-        self.is_authenticated = True
-        self.is_active = True
-        self.is_anonymous = False
+            # token login
+            validated = self.validate_token(id_or_token)
+            id = validated['id']
+            self.id = id
+            try:
+                user_dict = retrieve_user_dict(self.id)
+            except:
+                raise ValueError("Token implied bad user id")
+            self.password = user_dict['password']
+            self.is_authenticated = True
+            self.is_active = True
+            self.is_anonymous = False
+        except (BadSignature, SignatureExpired):
+            # password login
+            self.id = id_or_token
+            try:
+                user_dict = retrieve_user_dict(self.id)
+            except:
+                raise ValueError("Bad Token / Bad ID")
+            if self.hash_password(self.id, password) != user_dict['password']:
+                raise ValueError("Bad password")
+            self.password = user_dict['password']
+            self.is_authenticated = True
+            self.is_active = True
+            self.is_anonymous = False
+
+    def __repr__(self):
+        return str(self.dictify())
 
     def get_id(self):
         return self.id
@@ -221,33 +272,27 @@ class User(object):
         r = {}
         r['id'] = self.id
         r['password'] = self.password
-        r['token'] = token
         return r
 
-    def generate_token(self):
-        s = URLSafeTimedSerializer(_SECRET_KEY)
-        x = s.dumps(sha256(self.id+self.password+_SECRET_KEY))
+    def generate_token(self, expiration=60*60*24):
+        s = TimedJSONWebSignatureSerializer(_SECRET_KEY, expires_in=expiration)
+        x = s.dumps({'id': self.id}).decode("utf-8")
         return x
 
-    def validate_token(self, token, max_age=None):
-        s = URLSafeTimedSerializer(_SECRET_KEY)
-        x = None
-        try:
-            if max_age is None:
-                x = s.loads(token)
-            else:
-                x = s.loads(token, max_age)
-        except SignatureExpired:
-            raise ValueError("Expired Token")
-        if x is not None:
-            if x != sha256(self.id+self.password+_SECRET_KEY):
-                return ValueError("Invalid token")
+    @staticmethod
+    def validate_token(token):
+        s = TimedJSONWebSignatureSerializer(_SECRET_KEY)
+        x = s.loads(token)
+        return x
 
-    def hash_password(self, password):
-        self.password = sha256("{}{}".format(self.id, password).encode("utf-8")).hexdigest()
+    @staticmethod
+    def hash_password(id, password):
+        return sha256(
+            "{}{}{}".format(id, password, _SECRET_KEY).encode("utf-8")
+        ).hexdigest()
 
     def verify_password(self, password):
-        if hash_password(password) == self.password:
+        if self.hash_password(self.id, password) == self.password:
             return True
         return False
 
@@ -281,7 +326,9 @@ class RecordCategory(object):
         if record_id in get_existing_record_identifiers():
             self._records.append(record_id)
         else:
-            raise ValueError("That identifier ({}) doesn't exist.".format(record_id))
+            raise ValueError(
+                "That identifier ({}) doesn't exist.".format(record_id)
+            )
 
     def remove_record(self, record_id, whiff_is_error=True):
         atleast_one = False
@@ -298,11 +345,74 @@ class RecordCategory(object):
     records = property(get_records, set_records, del_records)
 
 
+class Login(Resource):
+    def post(self):
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('user', type=str, required=True)
+            parser.add_argument('password', type=str)
+            args = parser.parse_args()
+            session['user_token'] = User(args['user'], password=args['password']).generate_token()
+            return jsonify(
+                APIResponse("success").dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+
+
+class Logout(Resource):
+
+    method_decorators = [login_required]
+
+    def get(self):
+        try:
+            del session['user_token']
+            return jsonify(
+                APIResponse("success").dictify()
+            )
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+
+
+class GetToken(Resource):
+
+    method_decorators = [login_required]
+
+    def get(self):
+        t = g.user.generate_token()
+        return jsonify(
+            APIResponse("success", data={'token': t}).dictify()
+        )
+
+
+class UsersRoot(Resource):
+
+    method_decorators = [login_required]
+
+    def post(self):
+        # create a new user
+        try:
+            parser = reqparse.RequestParser()
+            parser.add_argument('new_user', type=str, required=True)
+            parser.add_argument('new_password', type=str, required=True)
+            args = parser.parse_args()
+            make_user_dict(args['new_user'], args['new_password'])
+            return jsonify(APIResponse("success").dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+
+
+class UserRoot(Resource):
+    def get(self, identifier):
+        # get a specific user record
+        pass
+
+    def delete(self, identifier):
+        # remove a specific user
+        pass
+
+
 class RecordsRoot(Resource):
-
-# Comment left in place in order for me to remember how to apply logins to stuff
-#    method_decorators = [login_required]
-
     def get(self):
         # List all records
         try:
@@ -771,26 +881,44 @@ class CategoryMember(Resource):
 
 # Create our app, hook the API to it, and add our resources
 app = Flask(__name__)
+app.secret_key = _SECRET_KEY
 
 login_manager = LoginManager()
 # Define the login manager for flask-login for authenticated endpoints
+
+
 @login_manager.request_loader
 def load_user(request):
-    # Try really hard to get the token out of where ever it could be
-    token = request.headers.get('Authorization')
-    if token is None:
-        token = request.args.get('token')
-    if token is None:
+    # Try really hard to get the user out of where ever it could be
+    # First look in the URL args
+    user, password = request.args.get('user'), request.args.get('password')
+    # Then look in the JSON args
+    if user is None:
         if request.get_json():
-            token = request.get_json().get('token')
-    if token is not None:
-        if token == "1234":
-            return User()
+            user, password = request.get_json().get('user'),  \
+                request.get_json().get('password')
+    # Then look in the session
+    if user is None:
+        if session.get('user_token'):
+            user = session.get('user_token')
+    if user is not None:
+        try:
+            g.user = User(user, password)
+            return g.user
+        except:
+            return None
     return None
 
 login_manager.init_app(app)
 
 api = Api(app)
+
+# Login and Logout
+api.add_resource(Login, '/login')
+api.add_resource(Logout, '/logout')
+
+# User endpoints
+api.add_resource(UsersRoot, '/users')
 
 # Record manipulation endpoints
 api.add_resource(RecordsRoot, '/record')
@@ -810,3 +938,5 @@ api.add_resource(RuleComponentRoot, '/conf/<string:identifier>/<string:rule_id>/
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
 api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')
+
+api.add_resource(GetToken, '/token')
