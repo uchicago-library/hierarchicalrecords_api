@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, g, session
+from flask import Flask, jsonify, g, session, make_response
 from flask_restful import Resource, Api, reqparse
 from flask_login import LoginManager, login_required
 from uuid import uuid1
@@ -11,6 +11,7 @@ from itsdangerous import TimedJSONWebSignatureSerializer, SignatureExpired, \
     BadSignature
 from json import loads as json_loads
 from json import dumps as json_dumps
+from os import urandom
 
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
@@ -67,10 +68,12 @@ def make_user_dict(identifier, password):
     if identifier != secure_filename(identifier):
         raise ValueError("Invalid id")
     with open(join(_STORAGE_ROOT, 'users', identifier), 'w') as f:
+        salt = str(urandom(32))
         f.write(
             json_dumps(
                 {"id": identifier,
-                 "password": User.hash_password(identifier, password)}
+                 "password": User.hash_password(identifier, password, salt),
+                 "salt": salt}
             )
         )
 
@@ -255,9 +258,10 @@ class User(object):
                 user_dict = retrieve_user_dict(self.id)
             except:
                 raise ValueError("Bad Token / Bad ID")
-            if self.hash_password(self.id, password) != user_dict['password']:
+            if self.hash_password(self.id, password, user_dict['salt']) != user_dict['password']:
                 raise ValueError("Bad password")
             self.password = user_dict['password']
+            self.salt = user_dict['salt']
             self.is_authenticated = True
             self.is_active = True
             self.is_anonymous = False
@@ -272,6 +276,7 @@ class User(object):
         r = {}
         r['id'] = self.id
         r['password'] = self.password
+        r['salt'] = self.salt
         return r
 
     def generate_token(self, expiration=60*60*24):
@@ -286,13 +291,13 @@ class User(object):
         return x
 
     @staticmethod
-    def hash_password(id, password):
+    def hash_password(id, password, salt):
         return sha256(
-            "{}{}{}".format(id, password, _SECRET_KEY).encode("utf-8")
+            "{}{}{}".format(id, password, salt).encode("utf-8")
         ).hexdigest()
 
     def verify_password(self, password):
-        if self.hash_password(self.id, password) == self.password:
+        if self.hash_password(self.id, password, self.salt) == self.password:
             return True
         return False
 
@@ -346,11 +351,24 @@ class RecordCategory(object):
 
 
 class Login(Resource):
+    def get(self):
+        return make_response("""<center>
+                                <form action="#" method="post">
+                                Username:<br>
+                                <input type="text" name="user">
+                                <br>
+                                Password:<br>
+                                <input type="password" name="password">
+                                <br><br>
+                                <input type="submit" value="Submit">
+                                </form>
+                             </center>""")
+
     def post(self):
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('user', type=str, required=True)
-            parser.add_argument('password', type=str)
+            parser.add_argument('user', type=str, required=True, location=['values', 'json', 'form'])
+            parser.add_argument('password', type=str, location=['values', 'json', 'form'])
             args = parser.parse_args()
             session['user_token'] = User(args['user'], password=args['password']).generate_token()
             return jsonify(
@@ -387,14 +405,26 @@ class GetToken(Resource):
 
 class UsersRoot(Resource):
 
-    method_decorators = [login_required]
+
+    def get(self):
+        return make_response("""<center>
+                                <form action="#" method="post">
+                                New Username:<br>
+                                <input type="text" name="new_user">
+                                <br>
+                                New User Password:<br>
+                                <input type="text" name="new_password">
+                                <br><br>
+                                <input type="submit" value="Submit">
+                                </form>
+                             </center>""")
 
     def post(self):
         # create a new user
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('new_user', type=str, required=True)
-            parser.add_argument('new_password', type=str, required=True)
+            parser.add_argument('new_user', type=str, required=True, location=['values', 'json', 'form'])
+            parser.add_argument('new_password', type=str, required=True, location=['values', 'json', 'form'])
             args = parser.parse_args()
             make_user_dict(args['new_user'], args['new_password'])
             return jsonify(APIResponse("success").dictify())
@@ -403,14 +433,33 @@ class UsersRoot(Resource):
 
 
 class UserRoot(Resource):
+
+    method_decorators = [login_required]
+
     def get(self, identifier):
         # get a specific user record
-        pass
+        try:
+            x = retrieve_user_dict(identifier)
+            try:
+                del x['password']
+                del x['salt']
+            except:
+                pass
+            return jsonify(APIResponse("success", data=x).dictify())
+        except Exception as e:
+            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
 
     def delete(self, identifier):
         # remove a specific user
         pass
 
+
+class Me(Resource):
+
+    method_decorators = [login_required]
+
+    def get(self):
+        return UserRoot.get(self, g.user.get_id())
 
 class RecordsRoot(Resource):
     def get(self):
@@ -919,6 +968,8 @@ api.add_resource(Logout, '/logout')
 
 # User endpoints
 api.add_resource(UsersRoot, '/users')
+api.add_resource(UserRoot, '/users/<string:identifier>')
+api.add_resource(Me, '/users/me')
 
 # Record manipulation endpoints
 api.add_resource(RecordsRoot, '/record')
