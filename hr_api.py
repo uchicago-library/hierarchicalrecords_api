@@ -13,17 +13,21 @@ from json import loads as json_loads
 from json import dumps as json_dumps
 from os import urandom
 
+from uchicagoldrapicore.responses.apiresponse import APIResponse
+from uchicagoldrapicore.lib.apiexceptionhandler import APIExceptionHandler
+
 from hierarchicalrecord.hierarchicalrecord import HierarchicalRecord
 from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
+
 from config import Config
-from apiresponse import APIResponse
 
 
 # Globals
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
 _NUMERIC_PATTERN = regex_compile("^[0-9]+$")
+_EXCEPTION_HANDLER = APIExceptionHandler()
 
 _SECRET_KEY = Config.secret_key
 _STORAGE_ROOT = Config.storage_root
@@ -64,9 +68,12 @@ def retrieve_user_dict(identifier):
         raise ValueError("Invalid User Identifier")
 
 
-def make_user_dict(identifier, password):
+def make_user_dict(identifier, password, clobber=False):
     if identifier != secure_filename(identifier):
         raise ValueError("Invalid id")
+    if not clobber:
+        if identifier in get_users():
+            raise ValueError("That user already exists!")
     with open(join(_STORAGE_ROOT, 'users', identifier), 'w') as f:
         salt = str(urandom(32))
         f.write(
@@ -258,7 +265,8 @@ class User(object):
                 user_dict = retrieve_user_dict(self.id)
             except:
                 raise ValueError("Bad Token / Bad ID")
-            if self.hash_password(self.id, password, user_dict['salt']) != user_dict['password']:
+            if self.hash_password(self.id, password, user_dict['salt']) !=  \
+                    user_dict['password']:
                 raise ValueError("Bad password")
             self.password = user_dict['password']
             self.salt = user_dict['salt']
@@ -352,6 +360,7 @@ class RecordCategory(object):
 
 class Login(Resource):
     def get(self):
+        # A handy dandy HTML interface for use in the browser
         return make_response("""<center>
                                 <form action="#" method="post">
                                 Username:<br>
@@ -365,17 +374,23 @@ class Login(Resource):
                              </center>""")
 
     def post(self):
+        # Generate a token (valid for default token lifespan) and set it in the
+        # session so that the user can stop passing credentials manually if they
+        # want
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('user', type=str, required=True, location=['values', 'json', 'form'])
-            parser.add_argument('password', type=str, location=['values', 'json', 'form'])
+            parser.add_argument('user', type=str, required=True,
+                                location=['values', 'json', 'form'])
+            parser.add_argument('password', type=str,
+                                location=['values', 'json', 'form'])
             args = parser.parse_args()
-            session['user_token'] = User(args['user'], password=args['password']).generate_token()
-            return jsonify(
-                APIResponse("success").dictify()
-            )
+            session['user_token'] = User(
+                args['user'],
+                password=args['password']
+            ).generate_token()
+            return jsonify(APIResponse("success").dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class Logout(Resource):
@@ -383,13 +398,14 @@ class Logout(Resource):
     method_decorators = [login_required]
 
     def get(self):
+        # Pop the token out of the session if login generated one
         try:
             del session['user_token']
             return jsonify(
                 APIResponse("success").dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class GetToken(Resource):
@@ -397,39 +413,46 @@ class GetToken(Resource):
     method_decorators = [login_required]
 
     def get(self):
-        t = g.user.generate_token()
-        return jsonify(
-            APIResponse("success", data={'token': t}).dictify()
-        )
+        # Generate a token for the user to use instead of their credentials
+        try:
+            t = g.user.generate_token()
+            return jsonify(
+                APIResponse("success", data={'token': t}).dictify()
+            )
+        except Exception as e:
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class UsersRoot(Resource):
-
-
     def get(self):
-        return make_response("""<center>
-                                <form action="#" method="post">
-                                New Username:<br>
-                                <input type="text" name="new_user">
-                                <br>
-                                New User Password:<br>
-                                <input type="text" name="new_password">
-                                <br><br>
-                                <input type="submit" value="Submit">
-                                </form>
-                             </center>""")
+        try:
+            return make_response("""<center>
+                                    <form action="#" method="post">
+                                    New Username:<br>
+                                    <input type="text" name="new_user">
+                                    <br>
+                                    New User Password:<br>
+                                    <input type="text" name="new_password">
+                                    <br><br>
+                                    <input type="submit" value="Submit">
+                                    </form>
+                                </center>""")
+        except Exception as e:
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self):
         # create a new user
         try:
             parser = reqparse.RequestParser()
-            parser.add_argument('new_user', type=str, required=True, location=['values', 'json', 'form'])
-            parser.add_argument('new_password', type=str, required=True, location=['values', 'json', 'form'])
+            parser.add_argument('new_user', type=str, required=True,
+                                location=['values', 'json', 'form'])
+            parser.add_argument('new_password', type=str, required=True,
+                                location=['values', 'json', 'form'])
             args = parser.parse_args()
             make_user_dict(args['new_user'], args['new_password'])
             return jsonify(APIResponse("success").dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class UserRoot(Resource):
@@ -440,14 +463,11 @@ class UserRoot(Resource):
         # get a specific user record
         try:
             x = retrieve_user_dict(identifier)
-            try:
-                del x['password']
-                del x['salt']
-            except:
-                pass
+            del x['password']
+            del x['salt']
             return jsonify(APIResponse("success", data=x).dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, identifier):
         # remove a specific user
@@ -459,7 +479,11 @@ class Me(Resource):
     method_decorators = [login_required]
 
     def get(self):
-        return UserRoot.get(self, g.user.get_id())
+        try:
+            return UserRoot.get(self, g.user.get_id())
+        except Exception as e:
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
+
 
 class RecordsRoot(Resource):
     def get(self):
@@ -467,11 +491,12 @@ class RecordsRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"record_identifiers": [x for x in get_existing_record_identifiers()]}
+                data={"record_identifiers": [x for x in
+                                             get_existing_record_identifiers()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self):
         # New Record
@@ -497,7 +522,7 @@ class RecordsRoot(Resource):
                                      "record": r.data})
             return jsonify(resp.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class RecordRoot(Resource):
@@ -510,7 +535,7 @@ class RecordRoot(Resource):
                                      "record_identifier": identifier})
             return jsonify(resp.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def put(self, identifier):
         # overwrite a whole record
@@ -535,7 +560,7 @@ class RecordRoot(Resource):
                                   'record': record.data}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, identifier):
         # delete a record
@@ -548,7 +573,7 @@ class RecordRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class EntryRoot(Resource):
@@ -558,10 +583,14 @@ class EntryRoot(Resource):
             r = retrieve_record(identifier)
             v = r[key]
             return jsonify(
-                APIResponse("success", data={'record_identifier': identifier, 'key': key, 'value': v}).dictify()
+                APIResponse(
+                    "success",
+                    data={'record_identifier': identifier,
+                          'key': key, 'value': v}
+                ).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self, identifier, key):
         # Set a value
@@ -587,7 +616,7 @@ class EntryRoot(Resource):
                                   'record_identifier': identifier}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, identifier, key):
         # delete a value
@@ -611,7 +640,7 @@ class EntryRoot(Resource):
                                   'record_identifier': identifier}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class ValidationRoot(Resource):
@@ -626,16 +655,17 @@ class ValidationRoot(Resource):
             r = retrieve_record(args['record_identifier'])
             validity = v.validate(r)
             resp = APIResponse("success",
-                               data={"is_valid": validity[0],
-                                     "validation_errors": validity[1],
-                                     "record_identifier": args['record_identifier'],
-                                     "conf_identifier": args['conf_identifier'],
-                                     "record": r.data})
+                               data={
+                                   "is_valid": validity[0],
+                                   "validation_errors": validity[1],
+                                   "record_identifier": args['record_identifier'],
+                                   "conf_identifier": args['conf_identifier'],
+                                   "record": r.data
+                                   }
+                               )
             return jsonify(resp.dictify())
         except Exception as e:
-            resp = APIResponse("fail",
-                               errors=[str(type(e)) + ": " + str(e)])
-            return jsonify(resp.dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class ConfsRoot(Resource):
@@ -644,11 +674,12 @@ class ConfsRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"conf_identifiers": [x for x in get_existing_conf_identifiers()]}
+                data={"conf_identifiers": [x for x in
+                                           get_existing_conf_identifiers()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self):
         # New Conf
@@ -663,7 +694,7 @@ class ConfsRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class ConfRoot(Resource):
@@ -671,10 +702,15 @@ class ConfRoot(Resource):
         # return a specific conf
         try:
             c = retrieve_conf(identifier)
-            return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
+            return jsonify(
+                APIResponse("success",
+                            data={"conf_identifier": identifier,
+                                  "conf": c.data}
+                            ).dictify()
+            )
 
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self, identifier):
         # set validation rule
@@ -685,10 +721,14 @@ class ConfRoot(Resource):
             c = retrieve_conf(identifier)
             c.add_rule(args['rule'])
             write_conf(c, identifier)
-            return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
+            return jsonify(
+                APIResponse("success",
+                            data={"conf_identifier": identifier,
+                                  "conf": c.data}
+                            ).dictify()
+            )
         except Exception as e:
-            raise e
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, identifier):
         # Delete this conf
@@ -696,12 +736,13 @@ class ConfRoot(Resource):
             delete_conf(identifier)
             r = APIResponse(
                 "success",
-                data={"conf_identifiers": [x for x in get_existing_conf_identifiers()],
+                data={"conf_identifiers": [x for x in
+                                           get_existing_conf_identifiers()],
                       "deleted_conf_identifier": identifier}
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class RulesRoot(Resource):
@@ -715,7 +756,9 @@ class RulesRoot(Resource):
                     rule = x
                     found_one = True
             if not found_one:
-                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+                raise ValueError(
+                    "No rule with id {} in conf {}".format(rule_id, identifier)
+                )
             r = APIResponse(
                 "success",
                 data={"conf_identifier": identifier,
@@ -723,7 +766,7 @@ class RulesRoot(Resource):
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, identifier, rule_id):
         # delete a rule
@@ -731,9 +774,12 @@ class RulesRoot(Resource):
             c = retrieve_conf(identifier)
             c.data = [x for x in c.data if x['id'] != rule_id]
             write_conf(c, identifier)
-            return jsonify(APIResponse("success", data={"conf_identifier": identifier, "conf": c.data}).dictify())
+            return jsonify(
+                APIResponse("success", data={"conf_identifier": identifier,
+                                             "conf": c.data}).dictify()
+            )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class RuleComponentRoot(Resource):
@@ -746,11 +792,17 @@ class RuleComponentRoot(Resource):
                 if x['id'] == rule_id:
                     rule = x
             if rule is None:
-                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+                raise ValueError(
+                    "No rule with id {} in conf {}".format(rule_id, identifier)
+                )
             try:
                 value = x[component]
             except KeyError:
-                raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+                raise ValueError(
+                    "No component named {} in rule {} in conf {}".format(component,
+                                                                         rule_id,
+                                                                         identifier)
+                )
             return jsonify(
                 APIResponse("success", data={"conf_identifier": identifier,
                                              "rule_id": rule_id,
@@ -758,7 +810,7 @@ class RuleComponentRoot(Resource):
                                              "value": value}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, identifier, rule_id, component):
         # remove a rule component
@@ -769,12 +821,18 @@ class RuleComponentRoot(Resource):
                 if x['id'] == rule_id:
                     rule = x
             if rule is None:
-                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+                raise ValueError(
+                    "No rule with id {} in conf {}".format(rule_id, identifier)
+                )
             try:
                 x[component] = ""
                 value = x[component]
             except KeyError:
-                raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+                raise ValueError(
+                    "No component named {} in rule {} in conf {}".format(component,
+                                                                         rule_id,
+                                                                         identifier)
+                )
             write_conf(c, identifier)
             return jsonify(
                 APIResponse("success", data={"conf_identifier": identifier,
@@ -783,7 +841,7 @@ class RuleComponentRoot(Resource):
                                              "value": value}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
         pass
 
     def post(self, identifier, rule_id, component):
@@ -799,12 +857,18 @@ class RuleComponentRoot(Resource):
                 if x['id'] == rule_id:
                     rule = x
             if rule is None:
-                raise ValueError("No rule with id {} in conf {}".format(rule_id, identifier))
+                raise ValueError(
+                    "No rule with id {} in conf {}".format(rule_id, identifier)
+                )
             try:
                 x[component] = args['component_value']
                 value = x[component]
             except KeyError:
-                raise ValueError("No component named {} in rule {} in conf {}".format(component, rule_id, identifier))
+                raise ValueError(
+                    "No component named {} in rule {} in conf {}".format(component,
+                                                                         rule_id,
+                                                                         identifier)
+                )
             write_conf(c, identifier)
             return jsonify(
                 APIResponse("success", data={"conf_identifier": identifier,
@@ -813,7 +877,7 @@ class RuleComponentRoot(Resource):
                                              "value": value}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class CategoriesRoot(Resource):
@@ -822,11 +886,12 @@ class CategoriesRoot(Resource):
         try:
             r = APIResponse(
                 "success",
-                data={"category_identifiers": [x for x in get_existing_categories()]}
+                data={"category_identifiers": [x for x in
+                                               get_existing_categories()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self):
         # Add a category
@@ -836,10 +901,14 @@ class CategoriesRoot(Resource):
             args = parser.parse_args()
 
             if not only_alphanumeric(args['category_identifier']):
-                raise ValueError("Category identifiers can only be alphanumeric.")
+                raise ValueError(
+                    "Category identifiers can only be alphanumeric."
+                )
 
             # This line shouldn't do anything, but why not be paranoid about it
-            args['category_identifier'] = secure_filename(args['category_identifier'])
+            args['category_identifier'] = secure_filename(
+                args['category_identifier']
+            )
 
             if args['category_identifier'] in get_existing_categories():
                 raise ValueError("That cat id already exists, " +
@@ -848,12 +917,15 @@ class CategoriesRoot(Resource):
             c = retrieve_category(args['category_identifier'])
             write_category(c, args['category_identifier'])
             return jsonify(
-                APIResponse("success", data={"category_identifier": args['category_identifier'],
-                                             "record_identifiers": c.records}).dictify()
+                APIResponse(
+                    "success",
+                    data={"category_identifier": args['category_identifier'],
+                          "record_identifiers": c.records}
+                ).dictify()
             )
 
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class CategoryRoot(Resource):
@@ -862,11 +934,12 @@ class CategoryRoot(Resource):
         try:
             c = retrieve_category(cat_identifier)
             return jsonify(
-                APIResponse("success", data={"category_identifier": cat_identifier,
-                                             "record_identifiers": c.records}).dictify()
+                APIResponse("success",
+                            data={"category_identifier": cat_identifier,
+                                  "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def post(self, cat_identifier):
         # Add a record to this category
@@ -879,11 +952,12 @@ class CategoryRoot(Resource):
             c.add_record(args['record_identifier'])
             write_category(c, cat_identifier)
             return jsonify(
-                APIResponse("success", data={"category_identifier": cat_identifier,
-                                             "record_identifiers": c.records}).dictify()
+                APIResponse("success",
+                            data={"category_identifier": cat_identifier,
+                                  "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, cat_identifier):
         # delete this category
@@ -891,11 +965,12 @@ class CategoryRoot(Resource):
             delete_category(cat_identifier)
             r = APIResponse(
                 "success",
-                data={"category_identifiers": [x for x in get_existing_categories()]}
+                data={"category_identifiers": [x for x in
+                                               get_existing_categories()]}
             )
             return jsonify(r.dictify())
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class CategoryMember(Resource):
@@ -905,14 +980,18 @@ class CategoryMember(Resource):
             c = retrieve_category(cat_identifier)
             if rec_identifier in c.records:
                 return jsonify(
-                    APIResponse("success", data={"category_identifier": cat_identifier,
-                                                 "record_identifiers": c.records,
-                                                 "record_present": True}).dictify()
+                    APIResponse("success",
+                                data={"category_identifier": cat_identifier,
+                                      "record_identifiers": c.records,
+                                      "record_present": True}).dictify()
                 )
             else:
-                raise ValueError("Record Identifier: {} not present in Category: {}".format(rec_identifier, cat_identifier))
+                raise ValueError(
+                    "Record Identifier: {} not present in Category: {}".format(rec_identifier,
+                                                                               cat_identifier)
+                )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
     def delete(self, cat_identifier, rec_identifier):
         # remove this member from the category
@@ -921,19 +1000,31 @@ class CategoryMember(Resource):
             c.records = [x for x in c.records if x != rec_identifier]
             write_category(c, cat_identifier)
             return jsonify(
-                APIResponse("success", data={"category_identifier": cat_identifier,
-                                             "record_identifiers": c.records}).dictify()
+                APIResponse("success",
+                            data={"category_identifier": cat_identifier,
+                                  "record_identifiers": c.records}).dictify()
             )
         except Exception as e:
-            return jsonify(APIResponse("fail", errors=[str(type(e)) + ": " + str(e)]).dictify())
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 # Create our app, hook the API to it, and add our resources
 app = Flask(__name__)
+
+# Set our secret key so we can use sessions.
+# This value comes from the config
+
 app.secret_key = _SECRET_KEY
 
-login_manager = LoginManager()
+# Tell people everything they did wrong, instead of just the first instance of
+# what they did wrong when posting a request through the request parser
+# interface
+
+app.config['BUNDLE_ERRORS'] = True
+
 # Define the login manager for flask-login for authenticated endpoints
+
+login_manager = LoginManager()
 
 
 @login_manager.request_loader
@@ -990,4 +1081,5 @@ api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
 api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')
 
+# Token endpoint
 api.add_resource(GetToken, '/token')
