@@ -23,9 +23,12 @@ setup(
     ),
     dependency_links = [
         'https://github.com/uchicago-library/uchicagldrapi_core' +
-        '/tarball/master#egg=uchicagoldrapicore'
+        '/tarball/master#egg=uchicagoldrapicore',
+        'https://github.com/uchicago-library/uchicagoldr-hierarchicalrecords' +
+        '/tarball/master#egg=hierarchicalrecord'
     ],
     install_requires = [
-        'uchicagoldrapicore'
+        'uchicagoldrapicore',
+        'hierarchicalrecord'
     ]
 )
