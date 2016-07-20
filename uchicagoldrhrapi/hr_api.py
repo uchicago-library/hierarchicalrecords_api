@@ -1,18 +1,12 @@
-from flask import Flask, jsonify, g, session, make_response
+from flask import jsonify, Blueprint
 from flask_restful import Resource, Api, reqparse
-from flask_login import LoginManager, login_required
 from uuid import uuid1
 from os import scandir, remove
 from os.path import join
 from werkzeug.utils import secure_filename
 from re import compile as regex_compile
-from hashlib import sha256
-from itsdangerous import TimedJSONWebSignatureSerializer, SignatureExpired, \
-    BadSignature
-from json import loads as json_loads
-from json import dumps as json_dumps
-from os import urandom
 
+from uchicagoldrapicore.app import app
 from uchicagoldrapicore.responses.apiresponse import APIResponse
 from uchicagoldrapicore.lib.apiexceptionhandler import APIExceptionHandler
 
@@ -21,16 +15,12 @@ from hierarchicalrecord.recordconf import RecordConf
 from hierarchicalrecord.recordvalidator import RecordValidator
 
 
-from config import Config
-
-
 # Globals
 _ALPHANUM_PATTERN = regex_compile("^[a-zA-Z0-9]+$")
 _NUMERIC_PATTERN = regex_compile("^[0-9]+$")
 _EXCEPTION_HANDLER = APIExceptionHandler()
 
-_SECRET_KEY = Config.secret_key
-_STORAGE_ROOT = Config.storage_root
+_STORAGE_ROOT = app.config['STORAGE_ROOT']
 
 
 # Most of these are abstracted because they should be hooked
@@ -45,56 +35,6 @@ def only_alphanumeric(x):
     if _ALPHANUM_PATTERN.match(x):
         return True
     return False
-
-
-def get_users():
-    r = []
-    for x in scandir(join(_STORAGE_ROOT, 'users')):
-        if not x.is_file():
-            continue
-        r.append(x.name)
-    return r
-
-
-def retrieve_user_dict(identifier):
-    if identifier != secure_filename(identifier):
-        raise ValueError("Invalid User Identifier")
-    try:
-        r = None
-        with open(join(_STORAGE_ROOT, 'users', identifier), 'r') as f:
-            r = json_loads(f.read())
-            return r
-    except:
-        raise ValueError("Invalid User Identifier")
-
-
-def make_user_dict(identifier, password, clobber=False):
-    if identifier != secure_filename(identifier):
-        raise ValueError("Invalid id")
-    if not clobber:
-        if identifier in get_users():
-            raise ValueError("That user already exists!")
-    with open(join(_STORAGE_ROOT, 'users', identifier), 'w') as f:
-        salt = str(urandom(32))
-        f.write(
-            json_dumps(
-                {"id": identifier,
-                 "password": User.hash_password(identifier, password, salt),
-                 "salt": salt}
-            )
-        )
-
-
-def write_user_dict(user, identifier):
-    if not isinstance(user, User):
-        raise ValueError("Must pass a user instance")
-    if identifier != secure_filename(identifier):
-        raise ValueError("Invalid user identifier")
-    try:
-        with open(join(_STORAGE_ROOT, 'users', identifier), 'w') as f:
-            f.write(json_dumps(user.dictify()))
-    except:
-        raise ValueError("Bad user identifier")
 
 
 def retrieve_record(identifier):
@@ -243,73 +183,6 @@ def parse_value(value):
         return value
 
 
-class User(object):
-    def __init__(self, id_or_token, password=None):
-        try:
-            # token login
-            validated = self.validate_token(id_or_token)
-            id = validated['id']
-            self.id = id
-            try:
-                user_dict = retrieve_user_dict(self.id)
-            except:
-                raise ValueError("Token implied bad user id")
-            self.password = user_dict['password']
-            self.is_authenticated = True
-            self.is_active = True
-            self.is_anonymous = False
-        except (BadSignature, SignatureExpired):
-            # password login
-            self.id = id_or_token
-            try:
-                user_dict = retrieve_user_dict(self.id)
-            except:
-                raise ValueError("Bad Token / Bad ID")
-            if self.hash_password(self.id, password, user_dict['salt']) !=  \
-                    user_dict['password']:
-                raise ValueError("Bad password")
-            self.password = user_dict['password']
-            self.salt = user_dict['salt']
-            self.is_authenticated = True
-            self.is_active = True
-            self.is_anonymous = False
-
-    def __repr__(self):
-        return str(self.dictify())
-
-    def get_id(self):
-        return self.id
-
-    def dictify(self):
-        r = {}
-        r['id'] = self.id
-        r['password'] = self.password
-        r['salt'] = self.salt
-        return r
-
-    def generate_token(self, expiration=60*60*24):
-        s = TimedJSONWebSignatureSerializer(_SECRET_KEY, expires_in=expiration)
-        x = s.dumps({'id': self.id}).decode("utf-8")
-        return x
-
-    @staticmethod
-    def validate_token(token):
-        s = TimedJSONWebSignatureSerializer(_SECRET_KEY)
-        x = s.loads(token)
-        return x
-
-    @staticmethod
-    def hash_password(id, password, salt):
-        return sha256(
-            "{}{}{}".format(id, password, salt).encode("utf-8")
-        ).hexdigest()
-
-    def verify_password(self, password):
-        if self.hash_password(self.id, password, self.salt) == self.password:
-            return True
-        return False
-
-
 class RecordCategory(object):
     def __init__(self, title):
         self._title = None
@@ -356,133 +229,6 @@ class RecordCategory(object):
 
     title = property(get_title, set_title)
     records = property(get_records, set_records, del_records)
-
-
-class Login(Resource):
-    def get(self):
-        # A handy dandy HTML interface for use in the browser
-        return make_response("""<center>
-                                <form action="#" method="post">
-                                Username:<br>
-                                <input type="text" name="user">
-                                <br>
-                                Password:<br>
-                                <input type="password" name="password">
-                                <br><br>
-                                <input type="submit" value="Submit">
-                                </form>
-                             </center>""")
-
-    def post(self):
-        # Generate a token (valid for default token lifespan) and set it in the
-        # session so that the user can stop passing credentials manually if they
-        # want
-        try:
-            parser = reqparse.RequestParser()
-            parser.add_argument('user', type=str, required=True,
-                                location=['values', 'json', 'form'])
-            parser.add_argument('password', type=str,
-                                location=['values', 'json', 'form'])
-            args = parser.parse_args()
-            session['user_token'] = User(
-                args['user'],
-                password=args['password']
-            ).generate_token()
-            return jsonify(APIResponse("success").dictify())
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
-
-
-class Logout(Resource):
-
-    method_decorators = [login_required]
-
-    def get(self):
-        # Pop the token out of the session if login generated one
-        try:
-            del session['user_token']
-            return jsonify(
-                APIResponse("success").dictify()
-            )
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
-
-
-class GetToken(Resource):
-
-    method_decorators = [login_required]
-
-    def get(self):
-        # Generate a token for the user to use instead of their credentials
-        try:
-            t = g.user.generate_token()
-            return jsonify(
-                APIResponse("success", data={'token': t}).dictify()
-            )
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
-
-
-class UsersRoot(Resource):
-    def get(self):
-        try:
-            return make_response("""<center>
-                                    <form action="#" method="post">
-                                    New Username:<br>
-                                    <input type="text" name="new_user">
-                                    <br>
-                                    New User Password:<br>
-                                    <input type="text" name="new_password">
-                                    <br><br>
-                                    <input type="submit" value="Submit">
-                                    </form>
-                                </center>""")
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
-
-    def post(self):
-        # create a new user
-        try:
-            parser = reqparse.RequestParser()
-            parser.add_argument('new_user', type=str, required=True,
-                                location=['values', 'json', 'form'])
-            parser.add_argument('new_password', type=str, required=True,
-                                location=['values', 'json', 'form'])
-            args = parser.parse_args()
-            make_user_dict(args['new_user'], args['new_password'])
-            return jsonify(APIResponse("success").dictify())
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
-
-
-class UserRoot(Resource):
-
-    method_decorators = [login_required]
-
-    def get(self, identifier):
-        # get a specific user record
-        try:
-            x = retrieve_user_dict(identifier)
-            del x['password']
-            del x['salt']
-            return jsonify(APIResponse("success", data=x).dictify())
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
-
-    def delete(self, identifier):
-        # remove a specific user
-        pass
-
-
-class Me(Resource):
-
-    method_decorators = [login_required]
-
-    def get(self):
-        try:
-            return UserRoot.get(self, g.user.get_id())
-        except Exception as e:
-            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
 
 class RecordsRoot(Resource):
@@ -1009,58 +755,9 @@ class CategoryMember(Resource):
 
 
 # Create our app, hook the API to it, and add our resources
-app = Flask(__name__)
+bp = Blueprint("hierarchicalrecordsapi", __name__)
 
-# Set our secret key so we can use sessions.
-# This value comes from the config
-
-app.secret_key = _SECRET_KEY
-
-# Tell people everything they did wrong, instead of just the first instance of
-# what they did wrong when posting a request through the request parser
-# interface
-
-app.config['BUNDLE_ERRORS'] = True
-
-# Define the login manager for flask-login for authenticated endpoints
-
-login_manager = LoginManager()
-
-
-@login_manager.request_loader
-def load_user(request):
-    # Try really hard to get the user out of where ever it could be
-    # First look in the URL args
-    user, password = request.args.get('user'), request.args.get('password')
-    # Then look in the JSON args
-    if user is None:
-        if request.get_json():
-            user, password = request.get_json().get('user'),  \
-                request.get_json().get('password')
-    # Then look in the session
-    if user is None:
-        if session.get('user_token'):
-            user = session.get('user_token')
-    if user is not None:
-        try:
-            g.user = User(user, password)
-            return g.user
-        except:
-            return None
-    return None
-
-login_manager.init_app(app)
-
-api = Api(app)
-
-# Login and Logout
-api.add_resource(Login, '/login')
-api.add_resource(Logout, '/logout')
-
-# User endpoints
-api.add_resource(UsersRoot, '/users')
-api.add_resource(UserRoot, '/users/<string:identifier>')
-api.add_resource(Me, '/users/me')
+api = Api(bp)
 
 # Record manipulation endpoints
 api.add_resource(RecordsRoot, '/record')
@@ -1080,6 +777,3 @@ api.add_resource(RuleComponentRoot, '/conf/<string:identifier>/<string:rule_id>/
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
 api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')
-
-# Token endpoint
-api.add_resource(GetToken, '/token')
