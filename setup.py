@@ -8,7 +8,7 @@ def readme():
 setup(
     name = "uchicagoldrhrapi",
     description = "A RESTful API for creating and manipulating HierarchicalRecords.",
-    long_description = readme(),
+    long_description = "a test",
     version = "0.0.1dev",
     author = "Brian Balsamo, Tyler Danstrom",
     author_email = "balsamo@uchicago.edu, tdanstrom@uchicago.edu",
