@@ -1,0 +1,8 @@
+uchicagoldrhrapi.egg-info/SOURCES.txt
+uchicagoldrhrapi.egg-info/requires.txt
+uchicagoldrhrapi.egg-info/PKG-INFO
+uchicagoldrhrapi.egg-info/dependency_links.txt
+dist/uchicagoldrhrapi-0.0.1.dev0-py3.5.egg
+build/lib/uchicagoldrhrapi/__init__.py
+build/lib/uchicagoldrhrapi/hr_api.py
+uchicagoldrhrapi.egg-info/top_level.txt
