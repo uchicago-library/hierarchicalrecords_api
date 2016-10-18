@@ -753,6 +753,32 @@ class CategoryMember(Resource):
         except Exception as e:
             return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
 
+class CategoryKeyQuery(Resource):
+    def get(self, cat_identifier, key):
+        # Query every record in a category, looking for a specific key
+        try:
+            c = retrieve_category(cat_identifier)
+            results = {}
+            for record_identifier in c.records:
+                record = retrieve_record(record_identifier)
+                try:
+                    value = record[key]
+                    record_contained_key = True
+                except:
+                    value = None
+                    record_contained_key = False
+                results[record_identifier] = {
+                    "record_contained_key": record_contained_key,
+                    "value": value
+                }
+            return jsonify(
+                APIResponse("success", data=results).dictify()
+            )
+        except Exception as e:
+            return jsonify(_EXCEPTION_HANDLER.handle(e).dictify())
+
+
+
 
 # Create our app, hook the API to it, and add our resources
 bp = Blueprint("hierarchicalrecordsapi", __name__)
@@ -777,3 +803,6 @@ api.add_resource(RuleComponentRoot, '/conf/<string:identifier>/<string:rule_id>/
 api.add_resource(CategoriesRoot, '/category')
 api.add_resource(CategoryRoot, '/category/<string:cat_identifier>')
 api.add_resource(CategoryMember, '/category/<string:cat_identifier>/<string:rec_identifier>')
+
+# Misc endpoints
+api.add_resource(CategoryKeyQuery, '/category/<:string:cat_identifier>/key/<string:key>')
