@@ -7,13 +7,13 @@
 
 This endpoint when submitted via a GET request returns a list of all record identifiers in the system. When it is submitted via a POST request it creates a new hierarchical record in the system so longs as the POST request satisfies the minimal requirements for a hierarchical record.
 
-## /record[record identifier]
+## /record/[record identifier]
 
 ### Methods: GET, PUT, DELETE
 
 When submitted  via a GET request, this endpoint will return either the complete record matching the identifier in the path or an error notifying the requester that the record could not be  found. When it is submitted via a PUT request, it will overwrite the record with the matching identifier with new information in the PUT data
 
-## /record[[record identifier]/[field name]
+## /record/[record identifier]/[field name]
 
 ### Methods: GET, POST, DELETE
 
